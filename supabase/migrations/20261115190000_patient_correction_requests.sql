@@ -72,3 +72,52 @@ with check (
       and tm.role in ('tenant_admin','clinic_admin','reviewer')
   )
 );
+
+-- Enforce tenant and Patient linkage independently of caller-supplied identifiers.
+create or replace function public.enforce_patient_correction_request_integrity()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if not exists (
+    select 1 from public.patients p
+    where p.id = new.patient_id and p.tenant_id = new.tenant_id
+  ) then
+    raise exception 'Patient does not belong to the correction request tenant';
+  end if;
+
+  if new.fhir_resource_id is not null and not exists (
+    select 1 from public.fhir_resources fr
+    where fr.id = new.fhir_resource_id
+      and fr.tenant_id = new.tenant_id
+      and fr.patient_id = new.patient_id
+      and fr.resource_type = 'Patient'
+  ) then
+    raise exception 'FHIR resource does not belong to the selected Patient and tenant';
+  end if;
+
+  if tg_op = 'UPDATE' then
+    if old.status <> 'pending' then
+      raise exception 'Only pending correction requests may be reviewed';
+    end if;
+    if new.tenant_id <> old.tenant_id
+      or new.patient_id <> old.patient_id
+      or new.fhir_resource_id is distinct from old.fhir_resource_id
+      or new.field_path <> old.field_path
+      or new.original_value <> old.original_value
+      or new.proposed_value <> old.proposed_value
+      or new.reason <> old.reason
+      or new.requested_by <> old.requested_by
+      or new.created_at <> old.created_at then
+      raise exception 'Correction request evidence is immutable after submission';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger patient_correction_request_integrity
+before insert or update on public.patient_correction_requests
+for each row execute function public.enforce_patient_correction_request_integrity();
