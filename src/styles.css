@@ -5,3 +5,5 @@
 
 .action-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.json-view{white-space:pre-wrap;word-break:break-word}
 @media(max-width:760px){.action-row{width:100%}.action-row button{flex:1}}
+
+.term-search{display:flex;align-items:center;gap:10px;border:1px solid #e8e4f0;background:#fbfaff;border-radius:9px;padding:0 12px;margin-bottom:18px;color:#8a7bb5}.term-search input{border:0;outline:0;background:transparent;width:100%;padding:12px 0;font-size:11px;color:#383249}.term-search input::placeholder{color:#aaa5b5}
