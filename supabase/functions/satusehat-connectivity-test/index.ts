@@ -104,7 +104,7 @@ Deno.serve(async (req: Request) => {
         connection_status: "tested", last_tested_at: new Date().toISOString(), updated_at: new Date().toISOString()
       }).eq("id", connection.id).eq("tenant_id", tenantId);
       await admin.from("audit_logs").insert({
-        tenant_id: tenantId, actor_id: auth.user.id, action: "satusehat.sandbox_preflight",
+        tenant_id: tenantId, actor_user_id: auth.user.id, action: "satusehat.sandbox_preflight",
         entity_type: "satusehat_connection", entity_id: connection.id,
         outcome: "success", metadata: { environment: "sandbox", oauth_http_status: authResult.status, fhir_http_status: metadata.status, organization_scope_verified: false }
       });
