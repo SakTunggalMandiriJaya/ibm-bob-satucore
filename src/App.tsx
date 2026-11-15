@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import Papa from 'papaparse'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
-import { getWorkspace, persistImport, persistMappingReview, persistPatient } from './lib/workflow'
+import { getWorkspace, normalizePatient, persistImport, persistMappingReview, persistPatient } from './lib/workflow'
 import type { Workspace } from './lib/workflow'
 import { Activity, ArrowRight, BadgeCheck, Bell, Check, ChevronDown, CircleAlert, ClipboardCheck, CloudUpload, Database, FileSpreadsheet, Fingerprint, GitBranch, HeartPulse, LayoutDashboard, LockKeyhole, LogOut, Menu, RefreshCw, Search, Settings, ShieldCheck, Sparkles, Stethoscope, Table2, Upload, UserRound, Users, X } from 'lucide-react'
 
@@ -45,7 +45,7 @@ function App(){
  const columns=useMemo(()=>rows.length?Object.keys(rows[0]):[],[rows])
  const missing=useMemo(()=>rows.reduce((n,r)=>n+Object.values(r).filter(v=>!String(v??'').trim()).length,0),[rows])
  const issues=useMemo(()=>rows.reduce((n,r)=>n+(!Object.values(r).some(v=>String(v??'').trim())?1:0),0),[rows])
- const fhir=useMemo(()=>{const r=rows[selected]??{};const map=(t:string)=>fields.find(f=>f.target===t)?.source;const name=String(r[map('name')??'']??'').trim();const dob=String(r[map('birthDate')??'']??'').trim();const sex=String(r[map('gender')??'']??'').toUpperCase();const mrn=String(r[map('identifier')??'']??'').trim();return {resourceType:'Patient',identifier:mrn?[{use:'usual',type:{text:'Medical record number'},value:mrn}]:[],active:true,name:name?[{text:name,family:name.split(' ').slice(-1)[0],given:name.split(' ').slice(0,-1)}]:[],birthDate:/^\d{4}-\d{2}-\d{2}$/.test(dob)?dob:undefined,gender:sex==='M'||sex==='MALE'?'male':sex==='F'||sex==='FEMALE'?'female':'unknown'}},[rows,selected,fields])
+ const fhir=useMemo(()=>normalizePatient(rows[selected]??{},fields).fhir,[rows,selected,fields])
  const handleFile=(e:ChangeEvent<HTMLInputElement>)=>{const file=e.target.files?.[0];if(!file)return;setFilename(file.name);setSourceFile(file);setImportId(null);setSavedPatient(null);Papa.parse<Row>(file,{header:true,skipEmptyLines:true,complete:async r=>{const data=r.data.slice(0,500);const mapped=(r.meta.fields??[]).map(guess);setRows(data);setFields(mapped);setActive('SCAN');setApproved(false);setValidation(false);setPage('Source data');setNotice(`Loaded ${data.length} rows from ${file.name}.`);if(workspace){try{setPersisting(true);const id=await persistImport({workspace,file,rows:data,fields:mapped});setImportId(id);setNotice(`SCAN profile saved to clinic workspace · ${data.length} records.`)}catch(err){setNotice(`Import not fully saved: ${(err as Error).message}`)}finally{setPersisting(false)}}},error:()=>setNotice('Could not parse this CSV file.')})}
  const loadDemo=()=>{const headers=Object.keys(demo[0]);const csv=[headers.join(','),...demo.map(row=>headers.map(h=>'\"'+String(row[h]??'').replaceAll('\"','\"\"')+'\"').join(','))].join('\\n');const file=new File([csv],'synthetic_patient_register.csv',{type:'text/csv'});setFilename(file.name);setSourceFile(file);setImportId(null);setSavedPatient(null);setRows(demo);setFields(headers.map(guess));setActive('SCAN');setApproved(false);setValidation(false);setPage('Source data');setNotice('Synthetic dataset loaded. No real patient data used. '+(workspace?'Save it to the authenticated tenant when ready.':'Sign in to persist this dataset.'))}
  const updateField=(i:number,target:string)=>setFields(fs=>fs.map((f,j)=>i===j?{...f,target,approved:false}:f))
