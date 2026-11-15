@@ -16,7 +16,8 @@ This checklist records the current MVP boundary and the evidence required before
 
 ### 1. Patient correction and human review
 
-- [ ] Add a correction request workflow for canonical Patient fields.
+- [x] Add a reusable Patient conflict-resolution dialog component (`src/components/PatientConflictResolution.tsx`) with current value, proposed value, mandatory reason/evidence and a pending-review hand-off.
+- [ ] Wire the component into Patient records and connect its callback to a tenant-scoped backend persistence operation.
 - [ ] Preserve the original import row and original canonical value; never overwrite source data.
 - [ ] Store proposed value, field path, reason, requester, timestamps and status separately.
 - [ ] Require an authorized reviewer to approve or reject; record reviewer and decision rationale.
@@ -56,4 +57,4 @@ This checklist records the current MVP boundary and the evidence required before
 
 ## Session note
 
-The patient correction feature is not yet implemented. Database schema and RLS policies must be inspected before adding its migration. No database migration was applied and no SATUSEHAT Patient submission was attempted.
+The first reusable conflict-resolution UI component and request type have been added on the feature branch. It is not yet wired into the Patient records page and does not persist requests. The patient correction workflow is therefore partial, not complete. Database schema and RLS policies must be inspected before adding its migration. No database migration was applied and no SATUSEHAT Patient submission was attempted.
