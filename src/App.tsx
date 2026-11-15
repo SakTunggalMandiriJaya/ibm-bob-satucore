@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import Papa from 'papaparse'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
@@ -30,7 +30,7 @@ const guess = (s: string): Field => {
 }
 function App(){
  const [page,setPage]=useState('Overview'), [rows,setRows]=useState<Row[]>([]), [filename,setFilename]=useState(''), [fields,setFields]=useState<Field[]>([]), [active,setActive]=useState('SCAN'), [notice,setNotice]=useState(''), [session,setSession]=useState<any>(null), [email,setEmail]=useState(''), [password,setPassword]=useState(''), [busy,setBusy]=useState(false)
- const [workspace,setWorkspace]=useState<Workspace|null>(null), [importId,setImportId]=useState<string|null>(null), [sourceFile,setSourceFile]=useState<File|null>(null), [savedPatient,setSavedPatient]=useState<{patientId:string;resourceId:string}|null>(null), [persisting,setPersisting]=useState(false)
+ const [workspace,setWorkspace]=useState<Workspace|null>(null), [importId,setImportId]=useState<string|null>(null), [sourceFile,setSourceFile]=useState<File|null>(null), [savedPatient,setSavedPatient]=useState<{patientId:string;resourceId:string}|null>(null), [persisting,setPersisting]=useState(false), [sandboxResult,setSandboxResult]=useState<any>(null), [opsRows,setOpsRows]=useState<any[]>([])
  const fileRef=useRef<HTMLInputElement>(null)
  const [showLogin,setShowLogin]=useState(false)
  const [selected,setSelected]=useState(0)
@@ -39,6 +39,9 @@ function App(){
  const [sidebar,setSidebar]=useState(false)
  const [search,setSearch]=useState('')
  const [tenant,setTenant]=useState('Demo Clinic · Jakarta')
+ useEffect(()=>{if(!supabase)return;let alive=true;supabase.auth.getSession().then(async({data})=>{if(!alive||!data.session)return;try{const w=await getWorkspace(data.session);if(alive){setSession(data.session);setWorkspace(w);setTenant(w.tenantName)}}catch{if(alive){await supabase.auth.signOut();setNotice('This account has no active clinic membership.')}}});const {data:listener}=supabase.auth.onAuthStateChange((_event,next)=>{if(!next){setSession(null);setWorkspace(null)}});return()=>{alive=false;listener.subscription.unsubscribe()}},[])
+ useEffect(()=>{if(!workspace||!supabase)return;const table=page==='Transactions'?'integration_transactions':page==='Audit trail'?'audit_logs':page==='Patient records'?'patients':null;if(!table)return;let alive=true;supabase.from(table).select('*').eq('tenant_id',workspace.tenantId).order('created_at',{ascending:false}).limit(25).then(({data,error})=>{if(alive){if(error)setNotice('Could not load '+page.toLowerCase()+': '+error.message);else setOpsRows(data??[])}});return()=>{alive=false}},[page,workspace])
+ const runSandboxPreflight=async()=>{if(!supabase||!session){setNotice('Sign in before running the SATUSEHAT staging preflight.');return}try{setPersisting(true);const {data,error}=await supabase.functions.invoke('satusehat-connectivity-test',{body:{action:'preflight'}});if(error)throw error;setSandboxResult(data);setNotice(data?.success?'SATUSEHAT staging preflight completed. This confirms connectivity only, not Patient submission.':'SATUSEHAT staging preflight returned a blocker. See details below.')}catch(err){setNotice('SATUSEHAT preflight unavailable: '+(err as Error).message)}finally{setPersisting(false)}}
  const columns=useMemo(()=>rows.length?Object.keys(rows[0]):[],[rows])
  const missing=useMemo(()=>rows.reduce((n,r)=>n+Object.values(r).filter(v=>!String(v??'').trim()).length,0),[rows])
  const issues=useMemo(()=>rows.reduce((n,r)=>n+(!Object.values(r).some(v=>String(v??'').trim())?1:0),0),[rows])
