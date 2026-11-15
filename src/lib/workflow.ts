@@ -88,9 +88,9 @@ export async function persistImport(args: {
       if (error) throw error
     }
     if (fields.length) {
-      const mappings = fields.map(f => ({
+      const mappings = fields.filter(f => f.target !== '—').map(f => ({
         tenant_id: w.tenantId, import_id: importId, source_field: f.source,
-        target_resource: 'Patient', target_field: f.target === '—' ? null : f.target,
+        target_resource: 'Patient', target_field: f.target,
         mapping_expression: { method: 'column_copy', source_field: f.source },
         confidence: f.confidence, recommendation_source: 'deterministic',
         status: f.approved ? 'approved' : 'proposed', created_by: w.userId
@@ -120,16 +120,20 @@ export async function persistMappingReview(workspace: Workspace, importId: strin
     if (!mapping) continue
     const status = field.approved && field.target !== '—' ? 'approved' : 'proposed'
     const { error: updateError } = await db.from('field_mappings').update({
-      target_field: field.target === '—' ? null : field.target, status,
+      target_field: field.target === '—' ? 'unmapped' : field.target, status,
       mapping_expression: { method: 'column_copy', source_field: field.source, reviewed_by: workspace.userId }
     }).eq('id', mapping.id).eq('tenant_id', workspace.tenantId)
     if (updateError) throw updateError
     if (field.approved && field.target !== '—') {
-      const { error: approvalError } = await db.from('mapping_approvals').insert({
-        tenant_id: workspace.tenantId, mapping_id: mapping.id, decision: 'approved',
-        comments: 'Human-approved in SATUCORE mapping review.', decided_by: workspace.userId
-      })
-      if (approvalError) throw approvalError
+      const { data: prior, error: priorError } = await db.from('mapping_approvals').select('id').eq('tenant_id',workspace.tenantId).eq('mapping_id',mapping.id).order('decided_at',{ascending:false}).limit(1)
+      if (priorError) throw priorError
+      if (prior?.[0]) {
+        const { error: approvalError } = await db.from('mapping_approvals').update({decision:'approved',comments:'Human-approved in SATUCORE mapping review.',decided_by:workspace.userId,decided_at:new Date().toISOString()}).eq('id',prior[0].id).eq('tenant_id',workspace.tenantId)
+        if (approvalError) throw approvalError
+      } else {
+        const { error: approvalError } = await db.from('mapping_approvals').insert({tenant_id:workspace.tenantId,mapping_id:mapping.id,decision:'approved',comments:'Human-approved in SATUCORE mapping review.',decided_by:workspace.userId})
+        if (approvalError) throw approvalError
+      }
     }
   }
   await writeAudit(workspace, 'patient_mapping_reviewed', 'data_import', importId, { approved_fields: fields.filter(f=>f.approved).map(f=>f.source) })
