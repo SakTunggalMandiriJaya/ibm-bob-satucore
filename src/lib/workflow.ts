@@ -231,7 +231,7 @@ export async function persistPatient(args: {
   const { data: resource, error: resourceError } = await db.from('fhir_resources').insert({
     tenant_id:w.tenantId, patient_id:patient.id, resource_type:'Patient',
     fhir_version:'4.0.1', profile_urls:['https://fhir.kemkes.go.id/r4/StructureDefinition/Patient'],
-    payload:fhir, status:'draft', source_record_reference:`import_rows/${sourceRow.id}`,
+    payload:fhir, payload_hash:payloadHash, status:'draft', source_record_reference:sourceReference,
     created_by:w.userId
   }).select('id').single()
   if (resourceError) throw resourceError
