@@ -1,0 +1,4 @@
+project_id = "vffribtxjxzkydfwrqre"
+
+[functions.satusehat-connectivity-test]
+verify_jwt = true
