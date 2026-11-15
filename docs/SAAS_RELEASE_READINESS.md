@@ -17,7 +17,10 @@ This checklist records the current MVP boundary and the evidence required before
 ### 1. Patient correction and human review
 
 - [x] Add a reusable Patient conflict-resolution dialog component (`src/components/PatientConflictResolution.tsx`) with current value, proposed value, mandatory reason/evidence and a pending-review hand-off.
-- [ ] Wire the component into Patient records and connect its callback to a tenant-scoped backend persistence operation.
+- [x] Wire the action into Patient records and persist proposals to `patient_correction_requests` using the Patient's tenant resolved server-side by RLS-scoped lookup.
+- [x] Add a tenant-scoped pending review queue with reviewer-only approve/reject decisions and append audit events.
+- [x] Add database RLS, tenant/Patient/FHIR consistency trigger, immutable evidence fields and one-way pending-to-decision transition.
+- [ ] After approval, apply the accepted field to canonical Patient and a new versioned FHIR draft, then re-run validation. Approval currently records the decision only.
 - [ ] Preserve the original import row and original canonical value; never overwrite source data.
 - [ ] Store proposed value, field path, reason, requester, timestamps and status separately.
 - [ ] Require an authorized reviewer to approve or reject; record reviewer and decision rationale.
@@ -57,4 +60,4 @@ This checklist records the current MVP boundary and the evidence required before
 
 ## Session note
 
-The first reusable conflict-resolution UI component and request type have been added on the feature branch. It is not yet wired into the Patient records page and does not persist requests. The patient correction workflow is therefore partial, not complete. Database schema and RLS policies must be inspected before adding its migration. No database migration was applied and no SATUSEHAT Patient submission was attempted.
+The Resolve conflict action is integrated into Patient records. Proposals persist in `patient_correction_requests`; a tenant-scoped review queue records reviewer approval/rejection and audit events. The database migration was applied. Approval does not yet mutate canonical Patient or FHIR: that controlled application/versioning and revalidation step remains outstanding. Build and end-to-end tenant tests remain outstanding. Database schema and RLS policies must be inspected before adding its migration. No database migration was applied and no SATUSEHAT Patient submission was attempted.
