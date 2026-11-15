@@ -39,3 +39,14 @@ Updated: 2026-11-15
 - One minimal RLS policy migration was applied: clinicians already permitted to create Patient records can also write the corresponding tenant audit event.
 - No SATUSEHAT Edge Function update or Patient write enablement was deployed.
 - Multi-step browser persistence is protected by RLS but is not a single database transaction; a failed step is surfaced and the import is marked failed where possible.
+
+
+## Terminology domain foundation (2026-11-15)
+
+- Added domain classification fields to terminology sets and sources; existing LOINC 2.74 rows remain classified as unclassified until explicitly reviewed.
+- Added a separate `medication_products` reference catalogue for KFA-like medicinal product/device catalogues. This is intentionally distinct from FHIR `Medication` and `MedicationRequest`.
+- The new catalogue is empty by design. No KFA source file/version was verified in the supplied inventory, so no product codes were fabricated or imported.
+- Catalogue rows retain source ID, source sheet, source row, version, code system URI, properties and human approval status.
+- Authenticated users can read reference catalogue entries; writes remain restricted to trusted backend/service operations.
+- Existing terminology mappings marked `relatedto` remain suggestions and are not promoted to `equivalent`.
+- This migration establishes schema only. Source-specific parsers, import execution, domain classification, terminology validation and FHIR-path binding remain pending.
