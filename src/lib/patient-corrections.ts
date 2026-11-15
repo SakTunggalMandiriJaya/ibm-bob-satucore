@@ -65,3 +65,21 @@ export async function createPatientCorrectionRequest(request: PatientConflictRes
   }
   return created
 }
+
+/**
+ * Applies an already-approved Patient.name correction through a tenant-checked,
+ * SECURITY INVOKER database function. This creates a new FHIR draft; it does not
+ * approve or submit that draft to SATUSEHAT.
+ */
+export async function applyApprovedPatientNameCorrection(requestId: string) {
+  if (!supabase) throw new Error('Supabase is not configured.')
+  const { data: auth, error: authError } = await supabase.auth.getUser()
+  if (authError) throw authError
+  if (!auth.user) throw new Error('Sign in before applying an approved correction.')
+
+  const { data, error } = await supabase.rpc('apply_approved_patient_name_correction', {
+    p_request_id: requestId,
+  })
+  if (error) throw error
+  return Array.isArray(data) ? data[0] : data
+}
