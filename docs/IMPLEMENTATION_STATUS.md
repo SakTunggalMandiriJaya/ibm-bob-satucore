@@ -16,6 +16,9 @@ Updated: 2026-11-15
 - Deterministic validation findings persisted in `validation_results`.
 - Audit events persisted in `audit_logs`.
 - Tenant-scoped Patient, transaction and audit list views.
+- Read-only terminology explorer over the imported terminology catalogue, with source sheet and code display.
+- Duplicate source MRN detection and a guard against automatic duplicate Patient creation.
+- Staging preflight results explicitly distinguish OAuth/FHIR metadata success from unverified facility scope.
 - SATUSEHAT staging preflight button wired to the existing JWT-protected Edge Function.
 - Version-controlled source mirror of the currently deployed `satusehat-connectivity-test` Edge Function v8.
 
@@ -33,5 +36,6 @@ Updated: 2026-11-15
 
 - Use synthetic data for the hackathon demo.
 - No service-role key or SATUSEHAT credential is included in the browser build.
-- No database migration or deployed Edge Function update was made as part of this implementation.
+- One minimal RLS policy migration was applied: clinicians already permitted to create Patient records can also write the corresponding tenant audit event.
+- No SATUSEHAT Edge Function update or Patient write enablement was deployed.
 - Multi-step browser persistence is protected by RLS but is not a single database transaction; a failed step is surfaced and the import is marked failed where possible.
