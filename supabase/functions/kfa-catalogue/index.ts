@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     .select("id,organization_id,environment,client_id_reference,client_secret_reference,token_url,api_base_url,authorization_scope,connection_status")
     .eq("tenant_id", tenantId);
   if (connError) return json({ error: "Could not resolve clinic SATUSEHAT connection" }, 500);
-  const connection = (connections ?? []).find((c: any) => c.environment === "staging" && c.connection_status === "active");
+  const connection = (connections ?? []).find((c: any) => ["sandbox", "staging"].includes(String(c.environment).toLowerCase()) && c.connection_status === "active");
   if (!connection) return json({ error: "No active staging SATUSEHAT connection is configured for this clinic." }, 409);
   if (!connection.organization_id || !connection.client_id_reference || !connection.client_secret_reference)
     return json({ error: "Clinic connection is missing Organization or credential references." }, 409);
@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
       source_version: sourceVersion, source_sheet: "products/all", code_system_uri: KFA_SYSTEM,
       source_type: "api", domain_key: "kfa", approval_status: "unreviewed",
       source_row_count: products.length,
-      metadata: { environment: "staging", page, size, total: result?.total ?? null, organization_id: connection.organization_id, fetched_at: new Date().toISOString() }
+      metadata: { environment: connection.environment, satusehat_api_environment: "staging", page, size, total: result?.total ?? null, organization_id: connection.organization_id, fetched_at: new Date().toISOString() }
     }).select("id").single();
     if (sourceError) return json({ error: "Could not record KFA source provenance", detail: sourceError.message }, 500);
 
