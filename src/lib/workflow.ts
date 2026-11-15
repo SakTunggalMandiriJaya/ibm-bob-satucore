@@ -193,10 +193,10 @@ export function normalizePatient(row: SourceRow, fields: Mapping[]) {
 
 export async function persistPatient(args: {
   workspace: Workspace; importId: string; row: SourceRow; rowNumber: number;
-  fields: Mapping[]; decision: 'draft'|'approved'
+  fields: Mapping[]
 }) {
   const db = client()
-  const { workspace:w, importId, row, rowNumber, fields, decision } = args
+  const { workspace:w, importId, row, rowNumber, fields } = args
   if (!w.organizationId) throw new Error('No active Organization is configured for this tenant.')
   const { canonical, fhir, issues } = normalizePatient(row, fields)
   const { data: sourceRow, error: rowError } = await db.from('import_rows')
@@ -242,20 +242,11 @@ export async function persistPatient(args: {
     issues
   })
   if (validationError) throw validationError
-  await db.from('import_rows').update({
+  const { error: rowUpdateError } = await db.from('import_rows').update({
     normalized_data:canonical, processing_status:failed?'failed':'processed', issues
   }).eq('id',sourceRow.id).eq('tenant_id',w.tenantId)
+  if (rowUpdateError) throw rowUpdateError
   await writeAudit(w,'canonical_patient_created','patient',patient.id,{fhir_resource_id:resource.id,validation_outcome:failed?'failed':issues.length?'warning':'passed'})
-  if (decision === 'approved') {
-    if (failed) throw new Error('Patient has blocking validation errors and cannot be approved.')
-    const { error: approvalError } = await db.from('submission_approvals').insert({
-      tenant_id:w.tenantId, fhir_resource_id:resource.id, decision:'approved',
-      approved_by:w.userId, comments:'Human approval for exact FHIR payload. External submission remains separately gated.'
-    })
-    if (approvalError) throw approvalError
-    await db.from('fhir_resources').update({status:'approved'}).eq('id',resource.id).eq('tenant_id',w.tenantId)
-    await writeAudit(w,'fhir_payload_approved','fhir_resource',resource.id,{patient_id:patient.id,external_submission:false})
-  }
   return {patientId:patient.id, resourceId:resource.id, fhir, issues, outcome:failed?'failed':issues.length?'warning':'passed'}
 }
 
