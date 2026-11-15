@@ -104,7 +104,7 @@ export async function persistImport(args: {
       if (error) throw error
     }
     const { error: doneError } = await db.from('data_imports').update({
-      status: 'profiled', warning_count: rows.reduce((n,row)=>n+Object.values(row).filter(v=>!String(v??'').trim()).length,0)
+      status: 'profiled', error_count: mrnField ? rows.filter(row=>{const v=String(row[mrnField]??'').trim();return !!v&&(mrnCounts.get(v)??0)>1}).length : 0, warning_count: rows.reduce((n,row)=>n+Object.values(row).filter(v=>!String(v??'').trim()).length,0)
     }).eq('id', importId).eq('tenant_id', w.tenantId)
     if (doneError) throw doneError
     await writeAudit(w, 'legacy_import_profiled', 'data_import', importId, { row_count: rows.length, column_count: columns.length })
@@ -141,6 +141,8 @@ export async function persistMappingReview(workspace: Workspace, importId: strin
       }
     }
   }
+  const { error: importStatusError } = await db.from('data_imports').update({status:'review'}).eq('id',importId).eq('tenant_id',workspace.tenantId)
+  if (importStatusError) throw importStatusError
   await writeAudit(workspace, 'patient_mapping_reviewed', 'data_import', importId, { approved_fields: fields.filter(f=>f.approved).map(f=>f.source) })
 }
 
