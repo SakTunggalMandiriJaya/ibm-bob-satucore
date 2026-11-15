@@ -79,12 +79,15 @@ export async function persistImport(args: {
       const { error } = await db.from('schema_profiles').insert(profiles)
       if (error) throw error
     }
+    const mrnField = fields.find(f=>f.target==='identifier')?.source
+    const mrnCounts = new Map<string,number>()
+    if (mrnField) for (const row of rows) { const value=String(row[mrnField]??'').trim(); if(value) mrnCounts.set(value,(mrnCounts.get(value)??0)+1) }
     const chunkSize = 250
     for (let i = 0; i < rows.length; i += chunkSize) {
       const batch = rows.slice(i, i + chunkSize).map((original, index) => ({
         tenant_id: w.tenantId, import_id: importId, row_number: i + index + 1,
         source_record_key: null, original_data: original, processing_status: 'profiled',
-        issues: Object.entries(original).filter(([,v]) => !String(v ?? '').trim()).map(([field]) => ({ code: 'EMPTY_VALUE', field, severity: 'warning' }))
+        issues: [...Object.entries(original).filter(([,v]) => !String(v ?? '').trim()).map(([field]) => ({ code: 'EMPTY_VALUE', field, severity: 'warning' })), ...(mrnField && String(original[mrnField]??'').trim() && (mrnCounts.get(String(original[mrnField]).trim())??0)>1 ? [{code:'DUPLICATE_SOURCE_IDENTIFIER',field:mrnField,severity:'error',message:'Duplicate source identifier within this import. Human identity review is required.'}] : [])]
       }))
       const { error } = await db.from('import_rows').insert(batch)
       if (error) throw error
@@ -200,6 +203,11 @@ export async function persistPatient(args: {
     .select('id').eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
   if (rowError) throw rowError
   const sourceReference = `import_rows/${sourceRow.id}`
+  if (canonical.local_mrn) {
+    const { data: existingMrn, error: mrnError } = await db.from('patients').select('id').eq('tenant_id',w.tenantId).eq('organization_id',w.organizationId).eq('local_mrn',canonical.local_mrn).maybeSingle()
+    if (mrnError) throw mrnError
+    if (existingMrn) throw new Error('This source MRN already exists in the clinic. Resolve the identity match manually; SATUCORE will not merge patients automatically.')
+  }
   const { data: existingPatient, error: existingError } = await db.from('patients').select('id').eq('tenant_id',w.tenantId).eq('source_record_reference',sourceReference).maybeSingle()
   if (existingError) throw existingError
   if (existingPatient) throw new Error('This source row already has a canonical Patient. Duplicate creation was prevented.')
