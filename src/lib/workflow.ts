@@ -46,9 +46,11 @@ export async function persistImport(args: {
 }): Promise<string> {
   const db = client()
   const { workspace: w, file, rows, fields } = args
+  const fileDigest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  const checksum = Array.from(new Uint8Array(fileDigest)).map(b=>b.toString(16).padStart(2,'0')).join('')
   const { data: imported, error: importError } = await db.from('data_imports').insert({
     tenant_id: w.tenantId, organization_id: w.organizationId, uploaded_by: w.userId,
-    original_filename: file.name, file_type: 'text/csv', file_size_bytes: file.size,
+    original_filename: file.name, file_type: 'text/csv', file_size_bytes: file.size, checksum_sha256: checksum,
     status: 'profiling', total_rows: rows.length,
     metadata: { ingestion: 'browser_csv_parser', synthetic_or_user_supplied: 'unclassified', profile_version: 'satucore-scan-0.1' }
   }).select('id').single()
@@ -197,12 +199,16 @@ export async function persistPatient(args: {
   const { data: sourceRow, error: rowError } = await db.from('import_rows')
     .select('id').eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
   if (rowError) throw rowError
+  const sourceReference = `import_rows/${sourceRow.id}`
+  const { data: existingPatient, error: existingError } = await db.from('patients').select('id').eq('tenant_id',w.tenantId).eq('source_record_reference',sourceReference).maybeSingle()
+  if (existingError) throw existingError
+  if (existingPatient) throw new Error('This source row already has a canonical Patient. Duplicate creation was prevented.')
   const { data: patient, error: patientError } = await db.from('patients').insert({
     tenant_id:w.tenantId, organization_id:w.organizationId, local_mrn:canonical.local_mrn,
     active:canonical.active, name:canonical.name, birth_date:canonical.birth_date,
     administrative_gender:canonical.administrative_gender, telecom:canonical.telecom,
     addresses:canonical.addresses, source_identifiers:canonical.source_identifiers,
-    source_record_reference:`import_rows/${sourceRow.id}`, provenance:canonical.provenance
+    source_record_reference:sourceReference, provenance:canonical.provenance
   }).select('id').single()
   if (patientError) throw patientError
   if (canonical.local_mrn) {
@@ -212,6 +218,8 @@ export async function persistPatient(args: {
     })
     if (error) throw error
   }
+  const payloadDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(fhir)))
+  const payloadHash = Array.from(new Uint8Array(payloadDigest)).map(b=>b.toString(16).padStart(2,'0')).join('')
   const { data: resource, error: resourceError } = await db.from('fhir_resources').insert({
     tenant_id:w.tenantId, patient_id:patient.id, resource_type:'Patient',
     fhir_version:'4.0.1', profile_urls:['https://fhir.kemkes.go.id/r4/StructureDefinition/Patient'],
