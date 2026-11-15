@@ -20,8 +20,9 @@ export async function getWorkspace(session: Session): Promise<Workspace> {
   if (memberships.length > 1) throw new Error('This account belongs to multiple clinics. Workspace selection is required before continuing.')
   const membership: any = memberships[0]
   const { data: orgs, error: orgError } = await db.from('organizations')
-    .select('id,name').eq('tenant_id', membership.tenant_id).eq('active', true).order('created_at').limit(1)
+    .select('id,name').eq('tenant_id', membership.tenant_id).eq('active', true).order('created_at')
   if (orgError) throw orgError
+  if ((orgs ?? []).length > 1) throw new Error('This clinic has multiple active Organizations. Select the facility explicitly before importing or submitting data.')
   return {
     tenantId: membership.tenant_id,
     tenantName: membership.tenants?.name ?? 'Clinic workspace',
