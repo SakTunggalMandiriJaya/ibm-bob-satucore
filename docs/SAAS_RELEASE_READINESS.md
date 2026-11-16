@@ -81,3 +81,12 @@ The Resolve conflict action is integrated into Patient records. Proposals persis
 - [ ] Verify end-to-end that a corrected row regenerates a valid canonical Patient and SATUSEHAT-profile-aware FHIR draft; no SATUSEHAT send.
 
 The source-correction path remains a development feature. A successful SQL migration or build does not prove authenticated multi-tenant behavior. PR #1 remains draft and unmerged; production and SATUSEHAT transmission remain disabled.
+
+
+## Patient MRN and validation behavior — 16 November 2026
+
+- Local MRN uniqueness is enforced within the active tenant + Organization, not globally across SATUCORE. A different Organization may issue the same local MRN value.
+- SATUSEHAT's current Patient use-case documentation (including Data Kelahiran) specifies the MRN identifier system as `http://sys-ids.kemkes.go.id/mrn/{{organization-ihs-number}}`; the assigning Organization IHS number is part of the identifier namespace. SATUCORE must not substitute its internal Organization UUID or a generic `urn:satucore` identifier into the SATUSEHAT FHIR Patient payload.
+- If the Organization's SATUSEHAT IHS number is not configured, retain the local MRN internally and omit the SATUSEHAT MRN identifier from the FHIR draft; surface a warning. Do not invent the Organization IHS number.
+- Run validation checks the selected Patient's local FHIR structure, duplicate MRN in the current import, and duplicate MRN against Patients in the active Organization when the authenticated import is available. The result message is displayed directly beneath the Run validation button in the page header.
+- The current validator remains local FHIR/data-readiness checking. It does not call MPI, establish the Patient IHS number, or certify full SATUSEHAT profile conformance.
