@@ -201,11 +201,18 @@ export async function persistPatient(args: {
   const db = client()
   const { workspace:w, importId, row, rowNumber, fields } = args
   if (!w.organizationId) throw new Error('No active Organization is configured for this tenant.')
-  const { canonical, fhir, issues } = normalizePatient(row, fields)
+  let { canonical, fhir } = normalizePatient(row, fields)
+  const { issues } = normalizePatient(row, fields)
   const { data: sourceRow, error: rowError } = await db.from('import_rows')
     .select('id,normalized_data,processing_status').eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
   if (rowError) throw rowError
   const sourceReference = `import_rows/${sourceRow.id}`
+  const mrnCorrection = (sourceRow.normalized_data as any)?.source_mrn_correction
+  if (mrnCorrection?.corrected_mrn) {
+    const corrected = String(mrnCorrection.corrected_mrn).trim()
+    canonical = { ...canonical, local_mrn: corrected, source_identifiers: [{ system: 'urn:satucore:source-mrn', value: corrected }], provenance: { ...canonical.provenance, source_mrn_correction: mrnCorrection } }
+    fhir = { ...fhir, identifier: [{ use: 'usual', type: { text: 'Medical record number' }, system: 'urn:satucore:source-mrn', value: corrected }] }
+  }
   const identityReview = (sourceRow.normalized_data as any)?.identity_review
   if (sourceRow.processing_status === 'identity_matched' && identityReview?.decision === 'confirmed_match' && identityReview?.patient_id) {
     const { data: linkedPatient, error: linkedError } = await db.from('patients')
@@ -255,7 +262,7 @@ export async function persistPatient(args: {
   })
   if (validationError) throw validationError
   const { error: rowUpdateError } = await db.from('import_rows').update({
-    normalized_data:canonical, processing_status:failed?'failed':'processed', issues
+    normalized_data: { ...canonical, ...(mrnCorrection ? { source_mrn_correction: mrnCorrection } : {}) }, processing_status:failed?'failed':'processed', issues
   }).eq('id',sourceRow.id).eq('tenant_id',w.tenantId)
   if (rowUpdateError) throw rowUpdateError
   await writeAudit(w,'canonical_patient_created','patient',patient.id,{fhir_resource_id:resource.id,validation_outcome:failed?'failed':issues.length?'warning':'passed'})
