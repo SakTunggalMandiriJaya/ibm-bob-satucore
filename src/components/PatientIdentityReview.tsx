@@ -84,11 +84,10 @@ export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onC
     if(decision==='confirmed_match'&&!selected){setError('Select the existing Patient record to confirm the match.');return}
     if(!comment.trim()){setError('Enter the evidence or rationale for this identity decision.');return}
     setBusy(true);setError('')
-    const {data,error:rpcError}=await supabase.rpc('decide_patient_identity_review',{
+    const {error:rpcError}=await supabase.rpc('decide_patient_identity_review',{
       p_review_id:reviewId,p_decision:decision,p_candidate_patient_id:decision==='confirmed_match'?selected:null,p_comment:comment.trim()
     })
     if(rpcError){setError(rpcError.message);setBusy(false);return}
-    const result=Array.isArray(data)?data[0]:data
     setBusy(false)
     if(decision==='confirmed_match') onComplete('Identity confirmed and source row linked to the existing clinic Patient. No duplicate Patient or new FHIR resource was created.','matched')
     else onComplete('Identity review remains unresolved. Patient creation stays blocked.','unresolved')
