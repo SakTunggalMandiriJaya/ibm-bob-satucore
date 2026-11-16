@@ -47,18 +47,14 @@ export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onC
       if(findError) throw findError
       if(!alive)return
       setCandidates((found??[]) as Candidate[])
-      const {data:prior,error:priorError}=await supabase.from('patient_identity_review_requests')
-        .select('id,decision').eq('tenant_id',workspace.tenantId).eq('import_row_id',source.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
-      if(priorError) throw priorError
-      if(prior?.id && prior.decision==='pending') { setReviewId(prior.id); setReviewDecision(prior.decision) }
-      else {
-        const {data:created,error:createError}=await supabase.from('patient_identity_review_requests').insert({
-          tenant_id:workspace.tenantId,organization_id:workspace.organizationId,import_id:importId,import_row_id:source.id,
-          incoming_mrn:incoming.mrn,incoming_snapshot:{name:incoming.name,birth_date:incoming.birthDate,gender:incoming.gender},
-        }).select('id').single()
-        if(createError) throw createError
-        if(alive)setReviewId(created.id)
-      }
+      const {data:opened,error:openError}=await supabase.rpc('open_patient_identity_review',{
+        p_tenant_id:workspace.tenantId,p_organization_id:workspace.organizationId,p_import_id:importId,p_import_row_id:source.id,
+        p_incoming_mrn:incoming.mrn,p_incoming_snapshot:{name:incoming.name,birth_date:incoming.birthDate,gender:incoming.gender}
+      })
+      if(openError) throw openError
+      const review=Array.isArray(opened)?opened[0]:opened
+      if(!review?.review_id) throw new Error('Could not open an identity review attempt.')
+      if(alive){setReviewId(review.review_id);setReviewDecision('pending')}
       if(alive)setLoading(false)
     })().catch(err=>{if(alive){setError(err.message??'Could not load identity review.');setLoading(false)}})
     return()=>{alive=false}
