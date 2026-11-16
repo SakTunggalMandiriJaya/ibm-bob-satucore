@@ -23,7 +23,7 @@ with check (reviewed_by is null and decision='pending'
  and exists(select 1 from public.tenant_members tm where tm.tenant_id=patient_identity_review_requests.tenant_id and tm.user_id=(select auth.uid()) and tm.status='active' and tm.role in ('tenant_admin','clinic_admin','data_manager','clinician','reviewer'))
  and exists(select 1 from public.import_rows ir where ir.id=patient_identity_review_requests.import_row_id and ir.import_id=patient_identity_review_requests.import_id and ir.tenant_id=patient_identity_review_requests.tenant_id));
 create policy patient_identity_review_update_tenant on public.patient_identity_review_requests for update to authenticated
-using (decision='pending' and exists(select 1 from public.tenant_members tm where tm.tenant_id=patient_identity_review_requests.tenant_id and tm.user_id=(select auth.uid()) and tm.status='active' and tm.role in ('tenant_admin','clinic_admin','reviewer')))
+using (decision='pending' and exists(select 1 from public.tenant_members tm where tm.tenant_id=patient_identity_review_requests.tenant_id and tm.user_id=(select auth.uid()) and tm.status='active' and tm.role in ('tenant_admin','clinic_admin','data_manager')))
 with check (reviewed_by=(select auth.uid()) and reviewed_at is not null and decision in ('confirmed_match','not_same_patient','unresolved'));
 grant select,insert,update on public.patient_identity_review_requests to authenticated;
 revoke all on public.patient_identity_review_requests from anon;
