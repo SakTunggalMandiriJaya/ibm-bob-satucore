@@ -29,7 +29,7 @@ This checklist records the current MVP boundary and the evidence required before
 - [ ] Enforce tenant scope and role checks in database RLS and server-side operations.
 - [ ] Test rejected, duplicate, unauthorized and cross-tenant correction attempts.
 
-**Safety gate:** do not represent correction as persisted or governed until schema, RLS, server-side authorization and audit behavior are implemented and tested. Supabase SQL inspection was unavailable during this session, so no speculative migration or database change has been made.
+**Safety gate:** do not represent correction as persisted or governed until schema, RLS, server-side authorization and audit behavior are implemented and tested. Supabase SQL inspection and the Patient identity review migration have been applied and inspected. Build and end-to-end tenant tests remain outstanding.
 
 ### 2. SATUSEHAT conformance and submission
 
@@ -59,5 +59,7 @@ This checklist records the current MVP boundary and the evidence required before
 - **Planned:** not yet implemented.
 
 ## Session note
+
+The import-time MRN conflict now opens a tenant-scoped identity review dialog. It queries actual Patients in the active clinic using the same Organization and MRN, captures a reviewer rationale, and offers confirmed match, not-same-patient, or unresolved decisions. Confirmed match links the source import row to the existing Patient using a SECURITY INVOKER RPC and audit event; it does not create a duplicate Patient, merge demographics, generate a new FHIR resource, or call SATUSEHAT MPI. The migration is applied and RLS is enabled. CI build and cross-tenant negative tests are still outstanding.
 
 The Resolve conflict action is integrated into Patient records. Proposals persist in `patient_correction_requests`; a tenant-scoped review queue records reviewer approval/rejection and audit events. The database migration was applied. Approval does not yet mutate canonical Patient or FHIR: that controlled application/versioning and revalidation step remains outstanding. Build and end-to-end tenant tests remain outstanding. Database schema and RLS policies must be inspected before adding its migration. No database migration was applied and no SATUSEHAT Patient submission was attempted.
