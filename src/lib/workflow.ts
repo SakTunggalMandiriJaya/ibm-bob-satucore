@@ -204,7 +204,7 @@ export async function persistPatient(args: {
   let { canonical, fhir } = normalizePatient(row, fields)
   const { issues } = normalizePatient(row, fields)
   const { data: sourceRow, error: rowError } = await db.from('import_rows')
-    .select('id,normalized_data,processing_status').eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
+    .select('id,original_data,normalized_data,processing_status').eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
   if (rowError) throw rowError
   const sourceReference = `import_rows/${sourceRow.id}`
   const mrnCorrection = (sourceRow.normalized_data as any)?.source_mrn_correction
@@ -221,6 +221,15 @@ export async function persistPatient(args: {
     if (linkedError) throw linkedError
     if (!linkedPatient) throw new Error('The previously linked clinic Patient is no longer available in this tenant. Identity review must be repeated.')
     return { patientId: linkedPatient.id, resourceId: null, fhir, issues, outcome: 'identity_matched' as const }
+  }
+  const mrnSourceField = fields.find(f=>f.target==='identifier' && f.approved)?.source
+  if (canonical.local_mrn && mrnSourceField) {
+    const { data: importRows, error: duplicateRowsError } = await db.from('import_rows')
+      .select('id,original_data').eq('tenant_id',w.tenantId).eq('import_id',importId).neq('id',sourceRow.id).limit(1000)
+    if (duplicateRowsError) throw duplicateRowsError
+    if ((importRows??[]).some((r:any)=>String(r.original_data?.[mrnSourceField]??'').trim()===canonical.local_mrn)) {
+      throw new Error('DUPLICATE_SOURCE_MRN_IN_IMPORT: this MRN appears in another row in the same uploaded file.')
+    }
   }
   if (canonical.local_mrn) {
     const { data: existingMrn, error: mrnError } = await db.from('patients').select('id').eq('tenant_id',w.tenantId).eq('organization_id',w.organizationId).eq('local_mrn',canonical.local_mrn).maybeSingle()
