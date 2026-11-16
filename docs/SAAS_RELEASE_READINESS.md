@@ -63,3 +63,21 @@ This checklist records the current MVP boundary and the evidence required before
 The import-time MRN conflict now opens a tenant-scoped identity review dialog. It queries actual Patients in the active clinic using the same Organization and MRN, captures a reviewer rationale, and offers confirmed match, not-same-patient, or unresolved decisions. Confirmed match links the source import row to the existing Patient using a SECURITY INVOKER RPC and audit event; it does not create a duplicate Patient, merge demographics, generate a new FHIR resource, or call SATUSEHAT MPI. The migration is applied and RLS is enabled. CI build and cross-tenant negative tests are still outstanding.
 
 The Resolve conflict action is integrated into Patient records. Proposals persist in `patient_correction_requests`; a tenant-scoped review queue records reviewer approval/rejection and audit events. The database migration was applied. Approval does not yet mutate canonical Patient or FHIR: that controlled application/versioning and revalidation step remains outstanding. Build and end-to-end tenant tests remain outstanding. Database schema and RLS policies must be inspected before adding its migration. No database migration was applied and no SATUSEHAT Patient submission was attempted.
+
+
+## MRN correction follow-up — 16 November 2026
+
+- [x] Add a reviewer-entered corrected source MRN action for a confirmed not-the-same-person outcome.
+- [x] Preserve the imported original payload; write the reviewed correction to the normalized overlay and the dedicated `source_row_corrections` ledger.
+- [x] Check corrected MRN against Patient records in the same tenant and Organization.
+- [x] Check corrected MRN against other imported rows in the same tenant and Organization.
+- [x] Record reviewer evidence, actor, timestamp and audit event.
+- [x] Add sequential immutable review attempts and an atomic tenant-scoped open/reuse RPC.
+- [x] Restrict open/correct/decision RPCs to active tenant_admin, clinic_admin and data_manager memberships; anon execution denied.
+- [x] Apply migrations to the connected development Supabase project and verify RLS policies and function grants.
+- [x] GitHub Actions build passed on the reviewed branch before the final database-only migration and again after the UI RPC integration was queued for CI.
+- [ ] Confirm the latest commit's CI run after the final RPC integration.
+- [ ] Run authenticated browser tests for confirmed match, corrected MRN, duplicate rejection, unresolved/retry and cross-tenant denial.
+- [ ] Verify end-to-end that a corrected row regenerates a valid canonical Patient and SATUSEHAT-profile-aware FHIR draft; no SATUSEHAT send.
+
+The source-correction path remains a development feature. A successful SQL migration or build does not prove authenticated multi-tenant behavior. PR #1 remains draft and unmerged; production and SATUSEHAT transmission remain disabled.
