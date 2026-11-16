@@ -203,9 +203,18 @@ export async function persistPatient(args: {
   if (!w.organizationId) throw new Error('No active Organization is configured for this tenant.')
   const { canonical, fhir, issues } = normalizePatient(row, fields)
   const { data: sourceRow, error: rowError } = await db.from('import_rows')
-    .select('id').eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
+    .select('id,normalized_data,processing_status').eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
   if (rowError) throw rowError
   const sourceReference = `import_rows/${sourceRow.id}`
+  const identityReview = (sourceRow.normalized_data as any)?.identity_review
+  if (sourceRow.processing_status === 'identity_matched' && identityReview?.decision === 'confirmed_match' && identityReview?.patient_id) {
+    const { data: linkedPatient, error: linkedError } = await db.from('patients')
+      .select('id').eq('id', identityReview.patient_id).eq('tenant_id', w.tenantId)
+      .eq('organization_id', w.organizationId).maybeSingle()
+    if (linkedError) throw linkedError
+    if (!linkedPatient) throw new Error('The previously linked clinic Patient is no longer available in this tenant. Identity review must be repeated.')
+    return { patientId: linkedPatient.id, resourceId: null, fhir, issues, outcome: 'identity_matched' as const }
+  }
   if (canonical.local_mrn) {
     const { data: existingMrn, error: mrnError } = await db.from('patients').select('id').eq('tenant_id',w.tenantId).eq('organization_id',w.organizationId).eq('local_mrn',canonical.local_mrn).maybeSingle()
     if (mrnError) throw mrnError
