@@ -87,7 +87,6 @@ export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onC
     const result=Array.isArray(data)?data[0]:data
     setBusy(false)
     if(decision==='confirmed_match') onComplete('Identity confirmed and source row linked to existing clinic Patient '+result.linked_patient_id+'. No duplicate Patient or new FHIR resource was created.')
-    else if(decision==='not_same_patient') onComplete('Reviewer found the records are not the same person. Source MRN correction is required before Patient creation can proceed.')
     else onComplete('Identity review left unresolved. Patient save remains blocked.')
     onClose()
   }
@@ -112,11 +111,15 @@ export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onC
       <label>Reviewer evidence / rationale</label>
       <textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="Record which source evidence was checked and why this decision is appropriate." rows={3}/>
       {error&&<p role="alert" className="warn-text">{error}</p>}
-      <div className="action-row" style={{justifyContent:'flex-end',flexWrap:'wrap',marginTop:16}}>
-        <button className="secondary-btn" disabled={busy||loading} onClick={()=>void decide('unresolved')}>Leave unresolved</button>
-        <button className="secondary-btn" disabled={busy||loading} onClick={()=>void decide('not_same_patient')}>Not the same Patient</button>
-        <button className="primary-btn" disabled={busy||loading||!candidates.length} onClick={()=>void decide('confirmed_match')}><Check size={15}/> Confirm match & link</button>
-      </div>
+      {reviewDecision==='pending'&&<>
+        <label>Verified corrected source MRN</label>
+        <input value={correctedMrn} onChange={e=>setCorrectedMrn(e.target.value)} placeholder="Enter corrected MRN" maxLength={128}/>
+        <div className="action-row" style={{justifyContent:'flex-end',flexWrap:'wrap',marginTop:16}}>
+          <button className="secondary-btn" disabled={busy||loading} onClick={()=>void decide('unresolved')}>Leave unresolved</button>
+          <button className="secondary-btn" disabled={busy||loading||!correctedMrn.trim()} onClick={()=>void correctMrn()}>Not the same · correct MRN</button>
+          <button className="primary-btn" disabled={busy||loading||!candidates.length} onClick={()=>void decide('confirmed_match')}><Check size={15}/> Confirm match & link</button>
+        </div>
+      </>}
       <p className="foot-note">A confirmed match links this import row to the existing Patient. It does not merge records, overwrite demographics, create a second Patient, call MPI or submit to SATUSEHAT.</p>
     </div>
   </div>
