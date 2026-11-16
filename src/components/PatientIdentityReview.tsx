@@ -48,9 +48,9 @@ export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onC
       if(!alive)return
       setCandidates((found??[]) as Candidate[])
       const {data:prior,error:priorError}=await supabase.from('patient_identity_review_requests')
-        .select('id,decision').eq('tenant_id',workspace.tenantId).eq('import_row_id',source.id).maybeSingle()
+        .select('id,decision').eq('tenant_id',workspace.tenantId).eq('import_row_id',source.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
       if(priorError) throw priorError
-      if(prior?.id) { setReviewId(prior.id); setReviewDecision(prior.decision) }
+      if(prior?.id && prior.decision==='pending') { setReviewId(prior.id); setReviewDecision(prior.decision) }
       else {
         const {data:created,error:createError}=await supabase.from('patient_identity_review_requests').insert({
           tenant_id:workspace.tenantId,organization_id:workspace.organizationId,import_id:importId,import_row_id:source.id,
