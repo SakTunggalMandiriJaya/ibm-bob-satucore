@@ -39,7 +39,7 @@ function App(){
  const [showLogin,setShowLogin]=useState(false)
  const [selected,setSelected]=useState(0)
  const [approved,setApproved]=useState(false)
- const [validation,setValidation]=useState(false), [validationBusy,setValidationBusy]=useState(false), [validationNotice,setValidationNotice]=useState('')
+ const [validation,setValidation]=useState(false), [validationBusy,setValidationBusy]=useState(false), [validationNotice,setValidationNotice]=useState(''), [validationIssues,setValidationIssues]=useState<{code:string;severity:'error'|'warning';message:string;path?:string}[]>([])
  const [sidebar,setSidebar]=useState(false)
  const [search,setSearch]=useState(''), [kfaKeyword,setKfaKeyword]=useState(''), [kfaRows,setKfaRows]=useState<any[]>([]), [kfaCatalogueRows,setKfaCatalogueRows]=useState<any[]>([]), [kfaBusy,setKfaBusy]=useState(false), [kfaSyncResult,setKfaSyncResult]=useState<any>(null)
  const [tenant,setTenant]=useState('Demo Clinic · Jakarta'), [identityReview,setIdentityReview]=useState<any>(null)
@@ -55,7 +55,7 @@ function App(){
  const issues=useMemo(()=>rows.reduce((n,r)=>n+(!Object.values(r).some(v=>String(v??'').trim())?1:0),0),[rows])
  const fhir=useMemo(()=>normalizePatient(rows[selected]??{},fields,workspace?.satusehatOrganizationId).fhir,[rows,selected,fields,workspace?.satusehatOrganizationId])
  const patientChecks=useMemo(()=>normalizePatient(rows[selected]??{},fields,workspace?.satusehatOrganizationId),[rows,selected,fields,workspace?.satusehatOrganizationId])
- useEffect(()=>{setValidation(false);setValidationNotice('')},[selected,rows,fields,workspace?.organizationId])
+ useEffect(()=>{setValidation(false);setValidationNotice('');setValidationIssues([])},[selected,rows,fields,workspace?.organizationId])
  const handleFile=(e:ChangeEvent<HTMLInputElement>)=>{const file=e.target.files?.[0];if(!file)return;setFilename(file.name);setSourceFile(file);setImportId(null);setSavedPatient(null);Papa.parse<Row>(file,{header:true,skipEmptyLines:true,complete:async r=>{const data=r.data.slice(0,500);const mapped=(r.meta.fields??[]).map(guess);setRows(data);setFields(mapped);setActive('SCAN');setApproved(false);setValidation(false);setPage('Source data');setNotice(`Loaded ${data.length} rows from ${file.name}.`);if(workspace){try{setPersisting(true);const id=await persistImport({workspace,file,rows:data,fields:mapped});setImportId(id);setNotice(`SCAN profile saved to clinic workspace · ${data.length} records.`)}catch(err){setNotice(`Import not fully saved: ${(err as Error).message}`)}finally{setPersisting(false)}}},error:()=>setNotice('Could not parse this CSV file.')})}
  const loadDemo=()=>{const headers=Object.keys(demo[0]);const csv=[headers.join(','),...demo.map(row=>headers.map(h=>'\"'+String(row[h]??'').replaceAll('\"','\"\"')+'\"').join(','))].join('\\n');const file=new File([csv],'synthetic_patient_register.csv',{type:'text/csv'});setFilename(file.name);setSourceFile(file);setImportId(null);setSavedPatient(null);setRows(demo);setFields(headers.map(guess));setActive('SCAN');setApproved(false);setValidation(false);setPage('Source data');setNotice('Synthetic dataset loaded. No real patient data used. '+(workspace?'Save it to the authenticated tenant when ready.':'Sign in to persist this dataset.'))}
  const updateField=(i:number,target:string)=>setFields(fs=>fs.map((f,j)=>i===j?{...f,target,approved:false}:f))
@@ -65,7 +65,7 @@ function App(){
  const runValidation=async()=>{
   if(!rows.length){setValidation(false);setValidationNotice('Load a Patient source record before running validation.');return}
   if(!approved){setValidation(false);setValidationNotice('Approve the Patient field mappings in MAP before validation.');return}
-  setValidationBusy(true);setValidation(false);setValidationNotice('')
+  setValidationBusy(true);setValidation(false);setValidationNotice('');setValidationIssues([])
   const result=normalizePatient(rows[selected]??{},fields,workspace?.satusehatOrganizationId)
   const issues=[...result.issues]
   const mrn=result.canonical.local_mrn
@@ -78,7 +78,7 @@ function App(){
     if(error) issues.push({code:'MRN_UNIQUENESS_CHECK_UNAVAILABLE',severity:'warning',message:'The clinic MRN uniqueness check could not be completed: '+error.message,path:'Patient.identifier'})
     else if(data?.length) issues.push({code:'MRN_ALREADY_ASSIGNED_IN_ORGANIZATION',severity:'error',message:'This MRN is already assigned to a Patient in '+(workspace.organizationName??'the active Organization')+'. Open identity review; do not create or merge a Patient automatically.',path:'Patient.identifier'})
   } else if(mrn&&!workspace) issues.push({code:'CLINIC_MRN_CHECK_NOT_RUN',severity:'warning',message:'Only the uploaded file was checked. Sign in and persist the import to check uniqueness against this clinic Organization.',path:'Patient.identifier'})
-  setValidation(true);setActive('VALIDATE')
+  setValidationIssues(issues);setValidation(true);setActive('VALIDATE')
   const errors=issues.filter(issue=>issue.severity==='error').length
   const warnings=issues.filter(issue=>issue.severity==='warning').length
   const summary=errors?'Validation found '+errors+' blocking issue(s)'+(warnings?' and '+warnings+' warning(s).':'.'):warnings?'Validation completed with '+warnings+' warning(s).':'Local Patient checks passed.'
