@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, CircleAlert, Loader2, Search, ShieldCheck, X } from 'lucide-react'
+import { Check, CircleAlert, Loader2, ShieldCheck, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { Workspace } from '../lib/workflow'
 
@@ -24,10 +24,11 @@ const patientName = (value:any) => Array.isArray(value) ? value.map(n=>n.text ??
 
 export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onClose,onComplete}:Props) {
   const [reviewId,setReviewId]=useState<string|null>(null)
-  const [sourceRowId,setSourceRowId]=useState<string|null>(null)
   const [candidates,setCandidates]=useState<Candidate[]>([])
   const [selected,setSelected]=useState('')
   const [comment,setComment]=useState('')
+  const [correctedMrn,setCorrectedMrn]=useState('')
+  const [reviewDecision,setReviewDecision]=useState('pending')
   const [loading,setLoading]=useState(true)
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
@@ -39,7 +40,6 @@ export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onC
       const {data:source,error:sourceError}=await supabase.from('import_rows').select('id').eq('tenant_id',workspace.tenantId).eq('import_id',importId).eq('row_number',rowNumber).single()
       if(sourceError) throw sourceError
       if(!alive)return
-      setSourceRowId(source.id)
       const {data:found,error:findError}=await supabase.from('patients')
         .select('id,local_mrn,name,birth_date,administrative_gender,telecom,addresses')
         .eq('tenant_id',workspace.tenantId).eq('organization_id',workspace.organizationId).eq('local_mrn',incoming.mrn)
@@ -50,7 +50,7 @@ export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onC
       const {data:prior,error:priorError}=await supabase.from('patient_identity_review_requests')
         .select('id,decision').eq('tenant_id',workspace.tenantId).eq('import_row_id',source.id).maybeSingle()
       if(priorError) throw priorError
-      if(prior?.id) setReviewId(prior.id)
+      if(prior?.id) { setReviewId(prior.id); setReviewDecision(prior.decision) }
       else {
         const {data:created,error:createError}=await supabase.from('patient_identity_review_requests').insert({
           tenant_id:workspace.tenantId,organization_id:workspace.organizationId,import_id:importId,import_row_id:source.id,
@@ -64,7 +64,18 @@ export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onC
     return()=>{alive=false}
   },[workspace,importId,rowNumber,incoming.mrn,incoming.name,incoming.birthDate,incoming.gender])
 
-  const decide=async(decision:'confirmed_match'|'not_same_patient'|'unresolved')=>{
+  const correctMrn=async()=>{
+    if(!supabase||!reviewId||busy)return
+    if(!correctedMrn.trim()||!comment.trim()){setError('Enter the corrected MRN and evidence for the correction.');return}
+    setBusy(true);setError('')
+    const {data,error:rpcError}=await supabase.rpc('correct_patient_identity_mrn',{p_review_id:reviewId,p_corrected_mrn:correctedMrn.trim(),p_comment:comment.trim()})
+    setBusy(false)
+    if(rpcError){setError(rpcError.message);return}
+    onComplete('Source MRN correction recorded separately from the original import. The original source row remains unchanged. Save again to rerun clinic uniqueness checks and generate a fresh canonical Patient and FHIR draft.')
+    onClose()
+  }
+
+  const decide=async(decision:'confirmed_match'|'unresolved')=>{
     if(!supabase||!reviewId||busy)return
     if(decision==='confirmed_match'&&!selected){setError('Select the existing Patient record to confirm the match.');return}
     if(!comment.trim()){setError('Enter the evidence or rationale for this identity decision.');return}
@@ -97,6 +108,7 @@ export function PatientIdentityReview({workspace,importId,rowNumber,incoming,onC
           <div className="foot-note">Patient ID: {candidate.id}</div>
         </label>)}
       </>}
+      {reviewDecision!=='pending'&&<p role="status" className="warn-text">This review was already decided ({reviewDecision}). Start a new import/review rather than overwriting its audit history.</p>}
       <label>Reviewer evidence / rationale</label>
       <textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="Record which source evidence was checked and why this decision is appropriate." rows={3}/>
       {error&&<p role="alert" className="warn-text">{error}</p>}
