@@ -210,7 +210,7 @@ export async function persistPatient(args: {
   const mrnCorrection = (sourceRow.normalized_data as any)?.source_mrn_correction
   if (mrnCorrection?.corrected_mrn) {
     const corrected = String(mrnCorrection.corrected_mrn).trim()
-    canonical = { ...canonical, local_mrn: corrected, source_identifiers: [{ system: 'urn:satucore:source-mrn', value: corrected }], provenance: { ...canonical.provenance, source_mrn_correction: mrnCorrection } }
+    canonical = { ...canonical, local_mrn: corrected, source_identifiers: [{ system: 'urn:satucore:source-mrn', value: corrected }], provenance: { ...canonical.provenance, source_mrn_correction: mrnCorrection } as Record<string, unknown> }
     fhir = { ...fhir, identifier: [{ use: 'usual', type: { text: 'Medical record number' }, system: 'urn:satucore:source-mrn', value: corrected }] }
   }
   const identityReview = (sourceRow.normalized_data as any)?.identity_review
