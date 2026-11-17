@@ -3,7 +3,7 @@ import { supabase } from './supabase'
 
 export type SourceRow = Record<string, string>
 export type Mapping = { source: string; target: string; confidence: number; approved: boolean }
-export type Workspace = { tenantId: string; tenantName: string; role: string; organizationId: string | null; organizationName: string | null; userId: string }
+export type Workspace = { tenantId: string; tenantName: string; role: string; organizationId: string | null; organizationName: string | null; satusehatOrganizationId: string | null; userId: string }
 
 function client() {
   if (!supabase) throw new Error('Supabase connection is not configured.')
@@ -20,7 +20,7 @@ export async function getWorkspace(session: Session): Promise<Workspace> {
   if (memberships.length > 1) throw new Error('This account belongs to multiple clinics. Workspace selection is required before continuing.')
   const membership: any = memberships[0]
   const { data: orgs, error: orgError } = await db.from('organizations')
-    .select('id,name').eq('tenant_id', membership.tenant_id).eq('active', true).order('created_at')
+    .select('id,name,satusehat_organization_id').eq('tenant_id', membership.tenant_id).eq('active', true).order('created_at')
   if (orgError) throw orgError
   if ((orgs ?? []).length > 1) throw new Error('This clinic has multiple active Organizations. Select the facility explicitly before importing or submitting data.')
   return {
@@ -29,6 +29,7 @@ export async function getWorkspace(session: Session): Promise<Workspace> {
     role: membership.role,
     organizationId: orgs?.[0]?.id ?? null,
     organizationName: orgs?.[0]?.name ?? null,
+    satusehatOrganizationId: orgs?.[0]?.satusehat_organization_id ?? null,
     userId: session.user.id
   }
 }
@@ -147,7 +148,7 @@ export async function persistMappingReview(workspace: Workspace, importId: strin
   await writeAudit(workspace, 'patient_mapping_reviewed', 'data_import', importId, { approved_fields: fields.filter(f=>f.approved).map(f=>f.source) })
 }
 
-export function normalizePatient(row: SourceRow, fields: Mapping[]) {
+export function normalizePatient(row: SourceRow, fields: Mapping[], organizationIhsNumber?: string | null) {
   const value = (target: string) => {
     const field = fields.find(f => f.target === target && f.approved)
     return field ? String(row[field.source] ?? '').trim() : ''
@@ -167,12 +168,13 @@ export function normalizePatient(row: SourceRow, fields: Mapping[]) {
     administrative_gender: gender,
     telecom: phone ? [{ system: 'phone', value: phone }] : [],
     addresses: value('address') ? [{ text: value('address') }] : [],
-    source_identifiers: mrn ? [{ system: 'urn:satucore:source-mrn', value: mrn }] : [],
+    source_identifiers: mrn ? [{ system: `urn:satucore:source-mrn:${organizationIhsNumber || 'unmapped-organization'}`, value: mrn }] : [],
     provenance: { transformation: 'satucore-canonical-patient-v1', source_fields: fields.filter(f=>f.approved).map(f=>({source:f.source,target:f.target})), human_reviewed: true }
   }
   const issues: {code:string,severity:'error'|'warning',message:string,path?:string}[] = []
   if (!rawName) issues.push({code:'PATIENT_NAME_REQUIRED',severity:'error',message:'A patient name is required for this Patient resource.',path:'Patient.name'})
   if (!mrn) issues.push({code:'SOURCE_IDENTIFIER_MISSING',severity:'warning',message:'No source MRN mapped. Identity review is required before any external matching.',path:'Patient.identifier'})
+  else if (!organizationIhsNumber) issues.push({code:'SATUSEHAT_ORGANIZATION_IHS_MISSING',severity:'warning',message:'Local MRN is retained internally, but the SATUSEHAT MRN identifier system cannot be formed until this facility has a verified SATUSEHAT Organization IHS number.',path:'Patient.identifier'})
   if (!dob) issues.push({code:'BIRTH_DATE_MISSING',severity:'warning',message:'Birth date is missing or not in YYYY-MM-DD format.',path:'Patient.birthDate'})
   else {
     const date = new Date(dob + 'T00:00:00Z')
@@ -183,7 +185,7 @@ export function normalizePatient(row: SourceRow, fields: Mapping[]) {
   const fhir = {
     resourceType:'Patient',
     meta:{profile:['https://fhir.kemkes.go.id/r4/StructureDefinition/Patient']},
-    ...(mrn ? {identifier:[{use:'usual',type:{text:'Medical record number'},system:'urn:satucore:source-mrn',value:mrn}]} : {}),
+    ...(mrn && organizationIhsNumber ? {identifier:[{use:'official',system:`http://sys-ids.kemkes.go.id/mrn/${organizationIhsNumber}`,value:mrn}]} : {}),
     active:true,
     ...(rawName ? {name:[{use:'official',text:rawName}]} : {}),
     ...(canonical.birth_date ? {birthDate:canonical.birth_date} : {}),
@@ -201,11 +203,36 @@ export async function persistPatient(args: {
   const db = client()
   const { workspace:w, importId, row, rowNumber, fields } = args
   if (!w.organizationId) throw new Error('No active Organization is configured for this tenant.')
-  const { canonical, fhir, issues } = normalizePatient(row, fields)
+  let { canonical, fhir } = normalizePatient(row, fields, w.satusehatOrganizationId)
+  const { issues } = normalizePatient(row, fields, w.satusehatOrganizationId)
   const { data: sourceRow, error: rowError } = await db.from('import_rows')
-    .select('id').eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
+    .select('id,original_data,normalized_data,processing_status').eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
   if (rowError) throw rowError
   const sourceReference = `import_rows/${sourceRow.id}`
+  const mrnCorrection = (sourceRow.normalized_data as any)?.source_mrn_correction
+  if (mrnCorrection?.corrected_mrn) {
+    const corrected = String(mrnCorrection.corrected_mrn).trim()
+    canonical = { ...canonical, local_mrn: corrected, source_identifiers: [{ system: 'urn:satucore:source-mrn', value: corrected }], provenance: { ...canonical.provenance, source_mrn_correction: mrnCorrection } as typeof canonical.provenance & { source_mrn_correction: typeof mrnCorrection } }
+    fhir = w.satusehatOrganizationId ? { ...fhir, identifier: [{ use: 'official', system: `http://sys-ids.kemkes.go.id/mrn/${w.satusehatOrganizationId}`, value: corrected }] } : { ...fhir, identifier: undefined }
+  }
+  const identityReview = (sourceRow.normalized_data as any)?.identity_review
+  if (sourceRow.processing_status === 'identity_matched' && identityReview?.decision === 'confirmed_match' && identityReview?.patient_id) {
+    const { data: linkedPatient, error: linkedError } = await db.from('patients')
+      .select('id').eq('id', identityReview.patient_id).eq('tenant_id', w.tenantId)
+      .eq('organization_id', w.organizationId).maybeSingle()
+    if (linkedError) throw linkedError
+    if (!linkedPatient) throw new Error('The previously linked clinic Patient is no longer available in this tenant. Identity review must be repeated.')
+    return { patientId: linkedPatient.id, resourceId: null, fhir, issues, outcome: 'identity_matched' as const }
+  }
+  const mrnSourceField = fields.find(f=>f.target==='identifier' && f.approved)?.source
+  if (canonical.local_mrn && mrnSourceField) {
+    const { data: importRows, error: duplicateRowsError } = await db.from('import_rows')
+      .select('id,original_data').eq('tenant_id',w.tenantId).eq('import_id',importId).neq('id',sourceRow.id).limit(1000)
+    if (duplicateRowsError) throw duplicateRowsError
+    if ((importRows??[]).some((r:any)=>String(r.original_data?.[mrnSourceField]??'').trim()===canonical.local_mrn)) {
+      throw new Error('DUPLICATE_SOURCE_MRN_IN_IMPORT: this MRN appears in another row in the same uploaded file.')
+    }
+  }
   if (canonical.local_mrn) {
     const { data: existingMrn, error: mrnError } = await db.from('patients').select('id').eq('tenant_id',w.tenantId).eq('organization_id',w.organizationId).eq('local_mrn',canonical.local_mrn).maybeSingle()
     if (mrnError) throw mrnError
@@ -224,7 +251,7 @@ export async function persistPatient(args: {
   if (patientError) throw patientError
   if (canonical.local_mrn) {
     const { error } = await db.from('patient_identifiers').insert({
-      tenant_id:w.tenantId, patient_id:patient.id, system:'urn:satucore:source-mrn',
+      tenant_id:w.tenantId, patient_id:patient.id, system:`urn:satucore:source-mrn:${w.organizationId}`,
       value:canonical.local_mrn, identifier_type:'MR', is_primary:true, verification_status:'unverified'
     })
     if (error) throw error
@@ -246,7 +273,7 @@ export async function persistPatient(args: {
   })
   if (validationError) throw validationError
   const { error: rowUpdateError } = await db.from('import_rows').update({
-    normalized_data:canonical, processing_status:failed?'failed':'processed', issues
+    normalized_data: { ...canonical, ...(mrnCorrection ? { source_mrn_correction: mrnCorrection } : {}) }, processing_status:failed?'failed':'processed', issues
   }).eq('id',sourceRow.id).eq('tenant_id',w.tenantId)
   if (rowUpdateError) throw rowUpdateError
   await writeAudit(w,'canonical_patient_created','patient',patient.id,{fhir_resource_id:resource.id,validation_outcome:failed?'failed':issues.length?'warning':'passed'})
