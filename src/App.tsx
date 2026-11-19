@@ -64,6 +64,7 @@ type Field = {
 };
 const targets = [
   "identifier",
+  "national_identifier",
   "name",
   "birthDate",
   "gender",
@@ -112,6 +113,11 @@ const guess = (s: string): Field => {
       /^(mrn|medicalrecord|patientno|patientid|nomorrm|no_rm)$/,
       "identifier",
       0.96,
+    ],
+    [
+      /^(nik|nationalid|nationalidentifier|nomorindukkependudukan|niktp|noktp|ktp)$/,
+      "national_identifier",
+      0.99,
     ],
     [/^(name|patientname|fullname|nama|namapasien)$/, "name", 0.98],
     [
@@ -1821,7 +1827,7 @@ function App() {
                                 <option key={t}>{t}</option>
                               ))}
                             </select>
-                            <small>FHIR Patient field</small>
+                            <small>{f.target === "national_identifier" ? "Canonical only · not sent to FHIR" : "FHIR Patient field"}</small>
                           </div>
                           <div className="confidence">
                             <b>
