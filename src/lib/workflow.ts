@@ -333,7 +333,7 @@ export function normalizePatient(row: SourceRow, fields: Mapping[]) {
 
   const mrn = value('identifier')
 
-    const nik = value('national_identifier')
+  const nik = value('national_identifier')
 
   const gender = genderRaw === 'M' || genderRaw === 'MALE' ? 'male'
 
@@ -378,7 +378,7 @@ export function normalizePatient(row: SourceRow, fields: Mapping[]) {
 
   if (!mrn) issues.push({code:'SOURCE_IDENTIFIER_MISSING',severity:'warning',message:'No source MRN mapped. Identity review is required before any external matching.',path:'Patient.identifier'})
 
-    if (nik && !/^\\d{16}$/.test(nik)) issues.push({code:'SOURCE_NIK_INVALID_FORMAT',severity:'error',message:'Mapped NIK must contain exactly 16 digits. Check the source value and mapping before approval.',path:'Patient.identifier'})
+    if (nik && !/^[0-9]{16}$/.test(nik)) issues.push({code:'SOURCE_NIK_INVALID_FORMAT',severity:'error',message:'Mapped NIK must contain exactly 16 digits. Check the source value and mapping before approval.',path:'Patient.identifier'})
 
   if (!dob) issues.push({code:'BIRTH_DATE_MISSING',severity:'warning',message:'Birth date is missing or not in YYYY-MM-DD format.',path:'Patient.birthDate'})
 
