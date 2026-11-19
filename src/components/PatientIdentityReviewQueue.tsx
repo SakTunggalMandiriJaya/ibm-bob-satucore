@@ -1,4 +1,4 @@
-﻿
+
 import { useCallback, useEffect, useState } from 'react'
 import {
   Check,
@@ -39,6 +39,8 @@ type Patient = {
   administrative_gender: string | null
   local_mrn: string | null
   addresses: unknown
+  nik: string | null
+  nikAmbiguous?: boolean
 }
 
 type Item = {
@@ -328,7 +330,7 @@ export function PatientIdentityReviewQueue({
         ),
       ]
 
-      const [rowsResult, patientsResult] =
+      const [rowsResult, patientsResult, identifiersResult] =
         await Promise.all([
           rowIds.length
             ? supabase
@@ -359,10 +361,23 @@ export function PatientIdentityReviewQueue({
                 data: [],
                 error: null,
               }),
+
+          patientIds.length
+            ? supabase
+                .from('patient_identifiers')
+                .select('patient_id,value,verification_status')
+                .eq('tenant_id', workspace.tenantId)
+                .eq('system', 'urn:satucore:source-nik')
+                .in('patient_id', patientIds)
+            : Promise.resolve({
+                data: [],
+                error: null,
+              }),
         ])
 
       if (rowsResult.error) throw rowsResult.error
       if (patientsResult.error) throw patientsResult.error
+      if (identifiersResult.error) throw identifiersResult.error
 
       const rows = new Map(
         ((rowsResult.data ?? []) as Source[]).map(
@@ -370,10 +385,22 @@ export function PatientIdentityReviewQueue({
         )
       )
 
+      const patientIdentifiers = new Map<string, string[]>()
+      for (const identifier of identifiersResult.data ?? []) {
+        const values = patientIdentifiers.get(identifier.patient_id) ?? []
+        values.push(identifier.value)
+        patientIdentifiers.set(identifier.patient_id, values)
+      }
+
       const patients = new Map(
-        ((patientsResult.data ?? []) as Patient[]).map(
-          x => [x.id, x]
-        )
+        ((patientsResult.data ?? []) as Patient[]).map(patient => {
+          const nikValues = patientIdentifiers.get(patient.id) ?? []
+          return [patient.id, {
+            ...patient,
+            nik: nikValues.length === 1 ? nikValues[0] : null,
+            nikAmbiguous: nikValues.length > 1,
+          } satisfies Patient]
+        })
       )
 
       setItems(
@@ -591,6 +618,25 @@ export function PatientIdentityReviewQueue({
                 gender: value(incomingGender) === 'â€”' ? null : value(incomingGender),
                 city: value(snapshot.city) === 'â€”' ? null : value(snapshot.city),
                 mrn: r.incoming_mrn || null,
+                nik: value(
+                  snapshot.nik ??
+                  snapshot.NIK ??
+                  snapshot.national_id ??
+                  snapshot.national_identifier ??
+                  snapshot.nomor_induk_kependudukan ??
+                  snapshot.no_ktp ??
+                  snapshot.ktp
+                ) === 'â€”'
+                  ? null
+                  : value(
+                      snapshot.nik ??
+                      snapshot.NIK ??
+                      snapshot.national_id ??
+                      snapshot.national_identifier ??
+                      snapshot.nomor_induk_kependudukan ??
+                      snapshot.no_ktp ??
+                      snapshot.ktp
+                    ),
               },
               candidate: {
                 name: item.candidate
@@ -600,9 +646,17 @@ export function PatientIdentityReviewQueue({
                 gender: item.candidate?.administrative_gender ?? null,
                 city: item.candidate ? patientCity(item.candidate.addresses) : null,
                 mrn: item.candidate?.local_mrn ?? null,
+                nik: item.candidate?.nik ?? null,
               },
               mrnVerification: 'unverified',
+              nikVerification: 'unverified',
             })
+
+            const hasMaterialIdentityConflict = intelligence.fields.some(
+              field =>
+                ['name', 'birthDate', 'gender', 'nik'].includes(field.field) &&
+                field.status === 'conflict'
+            )
 
             return (
               <article
@@ -699,6 +753,13 @@ export function PatientIdentityReviewQueue({
                         </p>
 
                         <p>
+                          National ID:{' '}
+                          {item.candidate.nikAmbiguous
+                            ? 'Multiple identifiers — review required'
+                            : mask(item.candidate.nik)}
+                        </p>
+
+                        <p>
                           Patient ID:{' '}
                           <code>
                             {item.candidate.id}
@@ -787,7 +848,7 @@ export function PatientIdentityReviewQueue({
                         value={selected}
                         allowMatch={Boolean(
                           item.candidate
-                        )}
+                        ) && !hasMaterialIdentityConflict}
                         onChange={decision =>
                           setDecisions(prev => ({
                             ...prev,
