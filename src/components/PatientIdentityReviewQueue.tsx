@@ -493,6 +493,11 @@ export function PatientIdentityReviewQueue({
         ? data[0]
         : data
 
+      if (result?.review_id === item.review.id && result.decision === 'blocked') {
+        setMessage('Confirmation blocked by database identity safeguards. Conflicting identity evidence must be resolved before linking this source row.')
+        return
+      }
+
       if (
         !result?.review_id ||
         result.review_id !== item.review.id ||
@@ -611,32 +616,30 @@ export function PatientIdentityReviewQueue({
             const incomingGender =
               snapshot.gender ?? snapshot.administrative_gender
 
-            const intelligence = comparePatientIdentities({
+            
+            const incomingNik =
+              snapshot.nik ??
+              snapshot.NIK ??
+              snapshot.national_id ??
+              snapshot.national_identifier ??
+              snapshot.nomor_induk_kependudukan ??
+              snapshot.no_ktp ??
+              snapshot.ktp ??
+              item.source?.original_data?.nik ??
+              item.source?.original_data?.NIK ??
+              item.source?.original_data?.national_id ??
+              item.source?.original_data?.national_identifier ??
+              item.source?.original_data?.nomor_induk_kependudukan ??
+              item.source?.original_data?.no_ktp ??
+              item.source?.original_data?.ktp
+const intelligence = comparePatientIdentities({
               incoming: {
                 name: value(incomingName) === 'â€”' ? null : value(incomingName),
                 birthDate: value(incomingDob) === 'â€”' ? null : value(incomingDob),
                 gender: value(incomingGender) === 'â€”' ? null : value(incomingGender),
                 city: value(snapshot.city) === 'â€”' ? null : value(snapshot.city),
                 mrn: r.incoming_mrn || null,
-                nik: value(
-                  snapshot.nik ??
-                  snapshot.NIK ??
-                  snapshot.national_id ??
-                  snapshot.national_identifier ??
-                  snapshot.nomor_induk_kependudukan ??
-                  snapshot.no_ktp ??
-                  snapshot.ktp
-                ) === 'â€”'
-                  ? null
-                  : value(
-                      snapshot.nik ??
-                      snapshot.NIK ??
-                      snapshot.national_id ??
-                      snapshot.national_identifier ??
-                      snapshot.nomor_induk_kependudukan ??
-                      snapshot.no_ktp ??
-                      snapshot.ktp
-                    ),
+                nik: value(incomingNik) === 'â€”' ? null : value(incomingNik),
               },
               candidate: {
                 name: item.candidate
