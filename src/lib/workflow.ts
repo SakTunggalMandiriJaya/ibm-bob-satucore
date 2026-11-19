@@ -333,7 +333,9 @@ export function normalizePatient(row: SourceRow, fields: Mapping[]) {
 
   const mrn = value('identifier')
 
-  const gender = genderRaw === 'M' || genderRaw === 'MALE' ? 'male'
+    const nik = value('national_identifier')
+
+  const gender = genderRaw === 'M' || genderRaw === 'MALE' ? 'male'
 
     : genderRaw === 'F' || genderRaw === 'FEMALE' ? 'female'
 
@@ -359,7 +361,10 @@ export function normalizePatient(row: SourceRow, fields: Mapping[]) {
 
     addresses: city ? [{ city }] : addressText ? [{ text: addressText }] : [],
 
-    source_identifiers: mrn ? [{ system: 'urn:satucore:source-mrn', value: mrn }] : [],
+    source_identifiers: [
+      ...(mrn ? [{ system: 'urn:satucore:source-mrn', value: mrn }] : []),
+      ...(nik ? [{ system: 'urn:satucore:source-nik', value: nik }] : [])
+    ],
 
     provenance: { transformation: 'satucore-canonical-patient-v1', source_fields: fields.filter(f=>f.approved && f.target !== '—').map(f=>({source:f.source,target:f.target})), reviewed_exclusions: fields.filter(f=>f.approved && f.target === '—').map(f=>f.source), human_reviewed: true }
 
@@ -373,7 +378,9 @@ export function normalizePatient(row: SourceRow, fields: Mapping[]) {
 
   if (!mrn) issues.push({code:'SOURCE_IDENTIFIER_MISSING',severity:'warning',message:'No source MRN mapped. Identity review is required before any external matching.',path:'Patient.identifier'})
 
-  if (!dob) issues.push({code:'BIRTH_DATE_MISSING',severity:'warning',message:'Birth date is missing or not in YYYY-MM-DD format.',path:'Patient.birthDate'})
+    if (nik && !/^\\d{16}$/.test(nik)) issues.push({code:'SOURCE_NIK_INVALID_FORMAT',severity:'error',message:'Mapped NIK must contain exactly 16 digits. Check the source value and mapping before approval.',path:'Patient.identifier'})
+
+  if (!dob) issues.push({code:'BIRTH_DATE_MISSING',severity:'warning',message:'Birth date is missing or not in YYYY-MM-DD format.',path:'Patient.birthDate'})
 
   else {
 
