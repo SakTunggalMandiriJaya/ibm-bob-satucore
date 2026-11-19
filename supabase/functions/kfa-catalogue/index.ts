@@ -38,16 +38,21 @@ Deno.serve(async (req) => {
   if (!connection) return json({ error: "No active staging SATUSEHAT connection is configured for this clinic." }, 409);
   if (!connection.organization_id || !connection.client_id_reference || !connection.client_secret_reference)
     return json({ error: "Clinic connection is missing Organization or credential references." }, 409);
-  const base = connection.api_base_url === PRODUCTION ? PRODUCTION : STAGING;
+  const configuredApiBase = String(connection.api_base_url ?? "").replace(/\/+$/, "");
+  if (configuredApiBase !== STAGING) return json({ error: "Only the exact SATUSEHAT Sandbox API base is allowed." }, 403);
+  const base = STAGING;
   if (base !== STAGING) return json({ error: "Production KFA access is disabled in this implementation." }, 403);
 
   const clientId = Deno.env.get(connection.client_id_reference);
   const clientSecret = Deno.env.get(connection.client_secret_reference);
   if (!clientId || !clientSecret) return json({ error: "The clinic credential references do not resolve to configured server secrets." }, 409);
   const tokenUrl = connection.token_url || `${STAGING}/oauth2/v1/accesstoken?grant_type=client_credentials`;
+  let parsedTokenUrl: URL;
+  try { parsedTokenUrl = new URL(tokenUrl); } catch { return json({ error: "SATUSEHAT OAuth URL is invalid." }, 403); }
+  if (parsedTokenUrl.protocol !== "https:" || parsedTokenUrl.hostname !== "api-satusehat-stg.dto.kemkes.go.id" || parsedTokenUrl.port !== "" || parsedTokenUrl.username !== "" || parsedTokenUrl.password !== "" || parsedTokenUrl.pathname !== "/oauth2/v1/accesstoken" || parsedTokenUrl.searchParams.size !== 1 || parsedTokenUrl.searchParams.get("grant_type") !== "client_credentials" || parsedTokenUrl.hash !== "") return json({ error: "Only the approved SATUSEHAT Sandbox OAuth endpoint and grant are allowed." }, 403);
   const tokenResponse = await fetch(tokenUrl, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret })
+    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret }), redirect: "error"
   });
   const tokenBody = await tokenResponse.json().catch(() => ({}));
   if (!tokenResponse.ok || !tokenBody.access_token) return json({ error: "SATUSEHAT OAuth2 authentication failed", upstream_status: tokenResponse.status }, 502);
@@ -59,7 +64,7 @@ Deno.serve(async (req) => {
     const params = new URLSearchParams({ page: String(page), size: String(size), product_type: String(body.product_type ?? "farmasi") });
     for (const key of ["keyword","farmalkes_type","template_code","packaging_code","from_date","to_date"])
       if (body[key]) params.set(key, String(body[key]));
-    const upstream = await fetch(`${STAGING}/kfa-v2/products/all?${params}`, { headers });
+    const upstream = await fetch(`${STAGING}/kfa-v2/products/all?${params}`, { headers, redirect: "error" });
     const result = await upstream.json().catch(() => null);
     if (!upstream.ok) return json({ error: "KFA product search failed", upstream_status: upstream.status, response: result }, 502);
     if (action === "search") return json({ success: true, action, page, size, total: result?.total ?? null, items: result?.items?.data ?? result?.items ?? [] });
@@ -105,7 +110,7 @@ Deno.serve(async (req) => {
     const code = String(body.code ?? "").trim();
     if (!code) return json({ error: "code is required" }, 400);
     const params = new URLSearchParams({ identifier: String(body.identifier ?? "kfa"), code });
-    const upstream = await fetch(`${STAGING}/kfa-v2/products?${params}`, { headers });
+    const upstream = await fetch(`${STAGING}/kfa-v2/products?${params}`, { headers, redirect: "error" });
     const result = await upstream.json().catch(() => null);
     return json({ success: upstream.ok, upstream_status: upstream.status, result }, upstream.ok ? 200 : 502);
   }

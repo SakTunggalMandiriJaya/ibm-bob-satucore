@@ -18,7 +18,7 @@ Updated: 2026-11-15
 - Tenant-scoped Patient, transaction and audit list views.
 - Read-only terminology explorer over the imported terminology catalogue, with source sheet and code display.
 - Duplicate source MRN detection and a guard against automatic duplicate Patient creation.
-- Staging preflight results explicitly distinguish OAuth/FHIR metadata success from unverified facility scope.
+- Staging preflight results explicitly distinguish successful OAuth/FHIR metadata connectivity from unverified facility scope.
 - SATUSEHAT staging preflight button wired to the existing JWT-protected Edge Function.
 - Version-controlled source mirror of the currently deployed `satusehat-connectivity-test` Edge Function v8.
 
@@ -26,7 +26,8 @@ Updated: 2026-11-15
 
 - SATUSEHAT Patient create/update remains disabled by the deployed Edge Function.
 - The staging preflight checks OAuth2 and FHIR metadata only; it does not prove that the configured Organization ID is authorized for every tenant.
-- MPI lookup is a distinct identity search, not Patient creation or KYC verification.
+- The former `mpi_lookup` action is disabled because it called FHIR Patient search rather than the separate SATUSEHAT MPI API. Read-only FHIR Patient search is now explicitly named `patient_search_by_identifier`; separate MPI integration remains unimplemented pending its own documented endpoint and scope verification.
+- Read-only Patient operations return redacted summaries rather than raw FHIR Patient payloads. Each requested, rejected, denied, failed and completed SATUSEHAT operation is audited; if audit persistence fails, the operation is stopped before it begins or its result is withheld.
 - No automatic MPI identity merge is implemented.
 - A current, executable SATUSEHAT Patient StructureDefinition/profile validator is not yet installed. The local validator records generic FHIR R4 checks only and does not claim SATUSEHAT conformance.
 - Exact-payload submission approval must be performed by a trusted backend that computes and verifies the payload hash. The browser does not write a submission approval or enable transmission.
