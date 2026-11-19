@@ -718,9 +718,7 @@ const intelligence = comparePatientIdentities({
 
                     <p>
                       National ID:{' '}
-                      {mask(
-                        snapshot.nik ?? snapshot.NIK
-                      )}
+                      {mask(incomingNik)}
                     </p>
                   </div>
 
