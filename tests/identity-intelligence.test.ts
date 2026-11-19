@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { comparePatientIdentities } from '../src/lib/identity-intelligence'
 
 describe('Patient Identity Intelligence', () => {
@@ -62,6 +62,7 @@ describe('Patient Identity Intelligence', () => {
 
     expect(result.fields.find(field => field.field === 'birthDate')?.status).toBe('missing')
     expect(result.fields.find(field => field.field === 'gender')?.status).toBe('missing')
+    expect(result.fields.find(field => field.field === 'nik')?.status).toBe('missing')
     expect(result.recommendation).toBe('additional_evidence_required')
   })
 
@@ -83,6 +84,51 @@ describe('Patient Identity Intelligence', () => {
     })
 
     expect(result.fields.find(field => field.field === 'mrn')?.status).toBe('conflict')
+    expect(result.recommendation).toBe('conflicting_evidence_review_required')
+  })
+
+  it('compares NIK values without converting them to numbers or dropping leading zeros', () => {
+    const result = comparePatientIdentities({
+      incoming: { ...bima, nik: '0000000000000002' },
+      candidate: { ...bima, nik: '0000000000000002' },
+      mrnVerification: 'unverified'
+    })
+
+    expect(result.fields.find(field => field.field === 'nik')?.status).toBe('unverified')
+    expect(result.automaticDecision).toBe(false)
+  })
+
+  it('flags a conflicting NIK even when the MRN matches', () => {
+    const result = comparePatientIdentities({
+      incoming: { ...bima, nik: '0000000000000008' },
+      candidate: { ...bima, nik: '0000000000000002' },
+      mrnVerification: 'unverified'
+    })
+
+    expect(result.fields.find(field => field.field === 'mrn')?.status).toBe('unverified')
+    expect(result.fields.find(field => field.field === 'nik')?.status).toBe('conflict')
+    expect(result.recommendation).toBe('conflicting_evidence_review_required')
+    expect(result.automaticDecision).toBe(false)
+  })
+
+  it('does not treat a missing candidate NIK as a match', () => {
+    const result = comparePatientIdentities({
+      incoming: { ...bima, nik: '0000000000000008' },
+      candidate: bima,
+      mrnVerification: 'unverified'
+    })
+
+    expect(result.fields.find(field => field.field === 'nik')?.status).toBe('missing')
+  })
+
+  it('flags a name conflict even when MRN and demographics otherwise match', () => {
+    const result = comparePatientIdentities({
+      incoming: { ...bima, name: 'TEST PATIENT THETA' },
+      candidate: { ...bima, name: 'TEST PATIENT BETA' },
+      mrnVerification: 'unverified'
+    })
+
+    expect(result.fields.find(field => field.field === 'name')?.status).toBe('conflict')
     expect(result.recommendation).toBe('conflicting_evidence_review_required')
   })
 })
