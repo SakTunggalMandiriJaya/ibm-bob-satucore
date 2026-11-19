@@ -1,4 +1,6 @@
-﻿export type IdentityFieldStatus = 'match' | 'conflict' | 'missing' | 'unverified'
+export type IdentityFieldStatus = 'match' | 'conflict' | 'missing' | 'unverified'
+
+export type IdentityVerification = 'verified' | 'unverified' | 'missing'
 
 export type IdentityComparisonInput = {
   incoming: {
@@ -7,6 +9,7 @@ export type IdentityComparisonInput = {
     gender?: string | null
     city?: string | null
     mrn?: string | null
+    nik?: string | null
   }
   candidate: {
     name?: string | null
@@ -14,12 +17,18 @@ export type IdentityComparisonInput = {
     gender?: string | null
     city?: string | null
     mrn?: string | null
+    nik?: string | null
   }
-  mrnVerification: 'verified' | 'unverified' | 'missing'
+  mrnVerification: IdentityVerification
+  /**
+   * Uploaded source NIK is unverified by default. A value match is not
+   * proof of identity and must never trigger an automatic decision.
+   */
+  nikVerification?: IdentityVerification
 }
 
 export type IdentityFieldComparison = {
-  field: 'name' | 'birthDate' | 'gender' | 'city' | 'mrn'
+  field: 'name' | 'birthDate' | 'gender' | 'city' | 'mrn' | 'nik'
   status: IdentityFieldStatus
   explanation: string
 }
@@ -45,7 +54,7 @@ function normalize(value?: string | null): string | null {
 }
 
 function compareField(
-  field: IdentityFieldComparison['field'],
+  field: Exclude<IdentityFieldComparison['field'], 'mrn' | 'nik'>,
   incoming?: string | null,
   candidate?: string | null
 ): IdentityFieldComparison {
@@ -75,6 +84,46 @@ function compareField(
   }
 }
 
+function compareIdentifier(
+  field: 'mrn' | 'nik',
+  incoming?: string | null,
+  candidate?: string | null,
+  verification: IdentityVerification = 'unverified'
+): IdentityFieldComparison {
+  const left = normalize(incoming)
+  const right = normalize(candidate)
+
+  if (!left || !right) {
+    return {
+      field,
+      status: 'missing',
+      explanation: `${field.toUpperCase()} evidence is missing from one or both records; absence is not a match.`
+    }
+  }
+
+  if (left !== right) {
+    return {
+      field,
+      status: 'conflict',
+      explanation: `${field.toUpperCase()} values differ and require human review.`
+    }
+  }
+
+  if (verification === 'verified') {
+    return {
+      field,
+      status: 'match',
+      explanation: `${field.toUpperCase()} values match and the identifier is marked verified.`
+    }
+  }
+
+  return {
+    field,
+    status: 'unverified',
+    explanation: `${field.toUpperCase()} values match, but the identifier is not verified and is not proof of identity.`
+  }
+}
+
 export function comparePatientIdentities(
   input: IdentityComparisonInput
 ): IdentityIntelligenceResult {
@@ -82,37 +131,10 @@ export function comparePatientIdentities(
     compareField('name', input.incoming.name, input.candidate.name),
     compareField('birthDate', input.incoming.birthDate, input.candidate.birthDate),
     compareField('gender', input.incoming.gender, input.candidate.gender),
-    compareField('city', input.incoming.city, input.candidate.city)
+    compareField('city', input.incoming.city, input.candidate.city),
+    compareIdentifier('nik', input.incoming.nik, input.candidate.nik, input.nikVerification ?? 'unverified'),
+    compareIdentifier('mrn', input.incoming.mrn, input.candidate.mrn, input.mrnVerification)
   ]
-
-  const incomingMrn = normalize(input.incoming.mrn)
-  const candidateMrn = normalize(input.candidate.mrn)
-
-  if (!incomingMrn || !candidateMrn) {
-    fields.push({
-      field: 'mrn',
-      status: 'missing',
-      explanation: 'MRN evidence is missing from one or both records.'
-    })
-  } else if (incomingMrn !== candidateMrn) {
-    fields.push({
-      field: 'mrn',
-      status: 'conflict',
-      explanation: 'The MRN values differ.'
-    })
-  } else if (input.mrnVerification === 'verified') {
-    fields.push({
-      field: 'mrn',
-      status: 'match',
-      explanation: 'The MRN values match and are marked verified.'
-    })
-  } else {
-    fields.push({
-      field: 'mrn',
-      status: 'unverified',
-      explanation: 'The MRN values match, but the identifier is not verified.'
-    })
-  }
 
   const hasConflict = fields.some(field => field.status === 'conflict')
 
