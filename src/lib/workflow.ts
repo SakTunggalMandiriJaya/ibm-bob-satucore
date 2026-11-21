@@ -1866,73 +1866,38 @@ export async function persistPatient(args: {
 
 
 export async function createPatientIdentityReviewRequest(args: {
+  workspace: Workspace
+  importId: string
+  rowNumber: number
+  incomingMrn: string
+  reason: string
+  candidatePatientId?: string | null
+}): Promise<{ requestId: string; existing: boolean; attemptNumber: number }> {
+  const { workspace: w, importId, rowNumber, incomingMrn, reason, candidatePatientId = null } = args
+  if (!w.organizationId) throw new Error('An active Organization is required for identity review.')
+  if (!incomingMrn.trim() || reason.trim().length < 10) {
+    throw new Error('MRN and a review rationale of at least 10 characters are required.')
+  }
 
-  workspace: Workspace; importId: string; rowNumber: number; incomingMrn: string; reason: string; candidatePatientId?: string | null
+  const { data, error } = await client().rpc('create_patient_identity_review_request', {
+    p_tenant_id: w.tenantId,
+    p_organization_id: w.organizationId,
+    p_import_id: importId,
+    p_row_number: rowNumber,
+    p_incoming_mrn: incomingMrn.trim(),
+    p_reason: reason.trim(),
+    p_candidate_patient_id: candidatePatientId
+  })
+  if (error) throw error
 
-}): Promise<{ requestId: string; existing: boolean; auditWarning?: string }> {
+  const result = Array.isArray(data) ? data[0] : data
+  if (!result?.request_id) throw new Error('Identity-review RPC returned no request identifier.')
 
-  const { workspace: w, importId, rowNumber, incomingMrn, reason, candidatePatientId = null } = args
-
-  if (!w.organizationId) throw new Error('An active Organization is required for identity review.')
-
-  if (!incomingMrn.trim() || !reason.trim()) throw new Error('MRN and review reason are required.')
-
-  const db = client()
-
-  const { data: source, error: sourceError } = await db.from('import_rows').select('id,original_data')
-
-    .eq('tenant_id', w.tenantId).eq('import_id', importId).eq('row_number', rowNumber).single()
-
-  if (sourceError) throw sourceError
-
-  const { data: pending, error: pendingError } = await db.from('patient_identity_review_requests').select('id')
-
-    .eq('tenant_id', w.tenantId).eq('import_id', importId).eq('import_row_id', source.id)
-
-    .eq('incoming_mrn', incomingMrn.trim()).eq('decision', 'pending').limit(1).maybeSingle()
-
-  if (pendingError) throw pendingError
-
-  if (pending) return { requestId: pending.id, existing: true }
-
-  const { data: previous, error: previousError } = await db.from('patient_identity_review_requests').select('attempt_number')
-
-    .eq('tenant_id', w.tenantId).eq('import_id', importId).eq('import_row_id', source.id)
-
-    .order('attempt_number', {ascending:false}).limit(1)
-
-  if (previousError) throw previousError
-
-  const { data: request, error: insertError } = await db.from('patient_identity_review_requests').insert({
-
-    tenant_id: w.tenantId, organization_id: w.organizationId, import_id: importId,
-
-    import_row_id: source.id, incoming_mrn: incomingMrn.trim(), incoming_snapshot: source.original_data,
-
-    candidate_patient_id: candidatePatientId,
-
-    attempt_number: Number(previous?.[0]?.attempt_number ?? 0) + 1, decision: 'pending'
-
-  }).select('id').single()
-
-  if (insertError) throw insertError
-
-  try {
-
-    await writeAudit(w, 'patient_identity_review_requested', 'patient_identity_review_request', request.id, {
-
-      import_id: importId, import_row_id: source.id, row_number: rowNumber, incoming_mrn: incomingMrn.trim(), reason: reason.trim()
-
-    })
-
-    return { requestId: request.id, existing: false }
-
-  } catch (error) {
-
-    return { requestId: request.id, existing: false, auditWarning: error instanceof Error ? error.message : String(error) }
-
-  }
-
+  return {
+    requestId: result.request_id as string,
+    existing: Boolean(result.existing),
+    attemptNumber: Number(result.attempt_number)
+  }
 }
 
 
