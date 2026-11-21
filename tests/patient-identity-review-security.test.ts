@@ -16,6 +16,13 @@ const integrityMigration = readFileSync(join(
   '20261116140000_harden_patient_identity_review_integrity.sql'
 ), 'utf8')
 
+const decisionWrapperMigration = readFileSync(join(
+  process.cwd(),
+  'supabase',
+  'migrations',
+  '20261121140000_wrap_identity_decision_rpc_authorization.sql'
+), 'utf8')
+
 const workflow = readFileSync(join(process.cwd(), 'src', 'lib', 'workflow.ts'), 'utf8')
 
 describe('Patient identity-review security migrations', () => {
@@ -27,6 +34,13 @@ describe('Patient identity-review security migrations', () => {
   it('installs a database guard and revokes direct authenticated table writes', () => {
     expect(integrityMigration).toMatch(/create trigger trg_guard_patient_identity_review_request/i)
     expect(integrityMigration).toMatch(/revoke insert, update, delete[\s\S]*?from public, anon, authenticated/i)
+  })
+
+  it('checks tenant authorization before invoking the preserved decision implementation', () => {
+    expect(decisionWrapperMigration).toMatch(/rename to decide_patient_identity_review_internal/i)
+    expect(decisionWrapperMigration).toMatch(/tm\.tenant_id = v_tenant_id[\s\S]*?tm\.user_id = v_user_id[\s\S]*?tm\.status = 'active'/i)
+    expect(decisionWrapperMigration).toMatch(/return query[\s\S]*?decide_patient_identity_review_internal/i)
+    expect(decisionWrapperMigration).toMatch(/revoke all on function public\.decide_patient_identity_review_internal[\s\S]*?from public, anon, authenticated/i)
   })
 
   it('uses a locked source row to serialize request attempts', () => {
