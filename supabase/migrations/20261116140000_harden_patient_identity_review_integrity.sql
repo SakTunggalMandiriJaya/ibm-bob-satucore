@@ -165,16 +165,16 @@ grant execute on function public.decide_patient_identity_review(uuid, text, uuid
 
 -- Force all authenticated inserts and decisions through the audited RPCs.
 revoke insert, update, delete on public.patient_identity_review_requests
-  from authenticated;
+  from public, anon, authenticated;
 revoke insert (
   id, tenant_id, organization_id, import_id, import_row_id, incoming_mrn,
   incoming_snapshot, candidate_patient_id, decision, reviewer_comment,
   reviewed_by, reviewed_at, created_at, attempt_number
-) on public.patient_identity_review_requests from authenticated;
+) on public.patient_identity_review_requests from public, anon, authenticated;
 revoke update (
   id, tenant_id, organization_id, import_id, import_row_id, incoming_mrn,
   incoming_snapshot, candidate_patient_id, decision, reviewer_comment,
   reviewed_by, reviewed_at, created_at, attempt_number
-) on public.patient_identity_review_requests from authenticated;
+) on public.patient_identity_review_requests from public, anon, authenticated;
 
 commit;
