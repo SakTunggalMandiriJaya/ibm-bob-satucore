@@ -119,7 +119,7 @@ begin
   returning * into v_request;
 
   -- Avoid writing a 16-digit national identifier if pasted into free text.
-  v_reason := regexp_replace(v_reason, '\\m[0-9]{16}\\M', '************', 'g');
+  v_reason := regexp_replace(v_reason, '\m[0-9]{16}\M', '************', 'g');
 
   insert into public.audit_logs (
     tenant_id, actor_user_id, action, entity_type, entity_id, outcome, metadata
