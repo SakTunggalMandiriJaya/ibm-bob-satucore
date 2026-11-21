@@ -1102,7 +1102,7 @@ export async function savePatientDraft(args: {
 
         requestId = review.requestId
 
-        requestWarning = review.auditWarning
+        
 
       } catch (error) {
 
