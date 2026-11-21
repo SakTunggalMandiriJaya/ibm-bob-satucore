@@ -26,7 +26,7 @@ describe('Patient identity-review security migrations', () => {
 
   it('installs a database guard and revokes direct authenticated table writes', () => {
     expect(integrityMigration).toMatch(/create trigger trg_guard_patient_identity_review_request/i)
-    expect(integrityMigration).toMatch(/revoke insert, update, delete[\\s\\S]*?from public, anon, authenticated/i)
+    expect(integrityMigration).toMatch(/revoke insert, update, delete[\s\S]*?from public, anon, authenticated/i)
   })
 
   it('uses a locked source row to serialize request attempts', () => {
