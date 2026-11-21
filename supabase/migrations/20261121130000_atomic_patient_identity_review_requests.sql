@@ -74,6 +74,26 @@ begin
     raise exception 'Source row does not belong to the selected tenant and import';
   end if;
 
+  -- The partial unique index is one pending request per tenant/source row,
+  -- irrespective of MRN. Return that request idempotently without mutation.
+  select r.* into v_pending
+  from public.patient_identity_review_requests r
+  where r.tenant_id = p_tenant_id
+    and r.import_row_id = v_source.id
+    and r.decision = 'pending'
+  limit 1;
+  if found then
+    return query select v_pending.id, true, v_pending.attempt_number;
+    return;
+  end if;
+
+  if exists (
+    select 1 from public.patient_source_links l
+    where l.tenant_id = p_tenant_id and l.import_row_id = v_source.id
+  ) then
+    raise exception 'Source row is already linked to a canonical Patient';
+  end if;
+
   if p_candidate_patient_id is not null then
     select exists (
       select 1
@@ -86,19 +106,6 @@ begin
     if not v_candidate_valid then
       raise exception 'Suggested candidate must match the same tenant, Organization and incoming MRN';
     end if;
-  end if;
-
-  -- The partial unique index is one pending request per tenant/source row,
-  -- irrespective of MRN. Return that request idempotently without mutation.
-  select r.* into v_pending
-  from public.patient_identity_review_requests r
-  where r.tenant_id = p_tenant_id
-    and r.import_row_id = v_source.id
-    and r.decision = 'pending'
-  limit 1;
-  if found then
-    return query select v_pending.id, true, v_pending.attempt_number;
-    return;
   end if;
 
   select coalesce(max(r.attempt_number), 0) + 1
