@@ -2826,7 +2826,7 @@ function App() {
                   setMrnReviewBusy(true);
                   const result = await createPatientIdentityReviewRequest({ workspace, importId, rowNumber: selected + 1, incomingMrn: String(rows[selected]?.[fields.find(f => f.target === "identifier")?.source ?? ""] ?? ""), reason: mrnReviewReason });
                   setMrnReviewOpen(false);
-                  setNotice(result.auditWarning ? `Identity review request ${result.requestId} was saved, but audit logging failed: ${result.auditWarning}` : result.existing ? `An identity review request is already pending (${result.requestId}).` : `Identity review request submitted (${result.requestId}). An authorized clinic administrator or data manager must decide it. No Patient was merged or created.`);
+                  setNotice(result.existing ? `An identity review request is already pending (${result.requestId}).` : `Identity review request submitted (${result.requestId}). An authorized clinic administrator or data manager must decide it. No Patient was merged or created.`);
                 } catch (error) { setNotice("Identity review request failed: " + getReadableError(error)); }
                 finally { setMrnReviewBusy(false); }
               }}>{mrnReviewBusy ? "Submitting…" : "Submit for identity review"}</button>
