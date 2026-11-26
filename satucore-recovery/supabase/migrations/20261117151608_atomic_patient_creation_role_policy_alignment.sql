@@ -1,0 +1,1 @@
+-- Historical migration checkpoint. Final role policy alignment is established by 20261117151450.
