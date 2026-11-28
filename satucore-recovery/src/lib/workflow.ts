@@ -98,6 +98,16 @@ export async function getWorkspace(session: Session): Promise<Workspace> {
 
   if (orgError) throw orgError
 
+  if ((orgs ?? []).length > 1) return {
+    tenantId: membership.tenant_id,
+    tenantName: membership.tenants?.name ?? 'Clinic workspace',
+    role: membership.role,
+    organizationId: null,
+    organizationName: null,
+    userId: session.user.id,
+    availableOrganizations: orgs ?? []
+  }
+
   return {
 
     tenantId: membership.tenant_id,
