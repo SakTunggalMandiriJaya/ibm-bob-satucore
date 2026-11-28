@@ -58,16 +58,22 @@ export async function getWorkspace(session: Session): Promise<Workspace> {
 
   // Facility-level access is explicit for ordinary users. Tenant administrators
   // may see all active Organizations; other roles must have an active assignment.
-  let organizationQuery = db.from('organizations')
-    .select('id,name').eq('tenant_id', membership.tenant_id).eq('active', true)
+  let orgs: { id: string; name: string }[] | null = null
+  let orgError: { message: string } | null = null
 
-  if (membership.role !== 'tenant_admin') {
+  if (membership.role === 'tenant_admin') {
+    const result = await db.from('organizations')
+      .select('id,name').eq('tenant_id', membership.tenant_id).eq('active', true).order('created_at')
+    orgs = result.data
+    orgError = result.error
+  } else {
     const { data: assignments, error: assignmentError } = await db.from('organization_members')
       .select('organization_id')
       .eq('tenant_id', membership.tenant_id)
       .eq('user_id', session.user.id)
       .eq('status', 'active')
     if (assignmentError) throw assignmentError
+
     const assignedIds = (assignments ?? []).map((item: { organization_id: string }) => item.organization_id)
     if (!assignedIds.length) {
       return {
@@ -79,21 +85,18 @@ export async function getWorkspace(session: Session): Promise<Workspace> {
         userId: session.user.id
       }
     }
-    organizationQuery = organizationQuery.in('id', assignedIds) as typeof organizationQuery
+
+    const result = await db.from('organizations')
+      .select('id,name')
+      .eq('tenant_id', membership.tenant_id)
+      .eq('active', true)
+      .in('id', assignedIds)
+      .order('created_at')
+    orgs = result.data
+    orgError = result.error
   }
 
-  const { data: orgs, error: orgError } = await organizationQuery.order('created_at')
   if (orgError) throw orgError
-
-  if ((orgs ?? []).length > 1) return {
-    tenantId: membership.tenant_id,
-    tenantName: membership.tenants?.name ?? 'Clinic workspace',
-    role: membership.role,
-    organizationId: null,
-    organizationName: null,
-    userId: session.user.id,
-    availableOrganizations: orgs
-  }
 
   return {
 
