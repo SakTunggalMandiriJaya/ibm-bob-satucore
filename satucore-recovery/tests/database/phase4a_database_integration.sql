@@ -236,7 +236,7 @@ grant select, insert, update on public.data_imports, public.import_rows,
   public.patient_drafts, public.patient_draft_validation_reports,
   public.patient_identity_review_requests to authenticated;
 
-\ir ../../supabase/migrations/20261128171000_phase4a_enforce_validated_patient_draft.sql
+\ir ../../supabase/migrations/20261120120000_bind_patient_creation_to_validated_draft.sql
 \ir ../../supabase/migrations/20261128172000_phase4a_invalidate_patient_drafts_on_input_change.sql
 
 insert into public.data_imports(id, tenant_id, organization_id, source_system_id)
