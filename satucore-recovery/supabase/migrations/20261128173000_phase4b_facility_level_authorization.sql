@@ -197,9 +197,12 @@ begin
       from public.field_mappings fm
       join public.data_imports di on di.id = fm.import_id and di.tenant_id = fm.tenant_id
      where fm.id = v_mapping_id and fm.tenant_id = p_tenant_id;
-  else
-    -- Tenant-wide reference/configuration data remains tenant-scoped, not facility-scoped.
+  elsif p_table_name in ('reference_sync_logs','terminology_mappings') then
+    -- These two tables have tenant-level ownership and no Organization relationship.
     return true;
+  else
+    -- Unknown tables must fail closed; add a deliberate ownership branch before policy coverage.
+    return false;
   end if;
 
   return private.can_access_organization(p_tenant_id, v_org_id);
