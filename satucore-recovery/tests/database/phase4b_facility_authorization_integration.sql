@@ -160,6 +160,30 @@ $assert$;
 reset role;
 reset request.jwt.claim.sub;
 
+-- RLS WITH CHECK permits writes only into an assigned Organization.
+set role authenticated;
+set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';
+insert into public.patients(id,tenant_id,organization_id,local_mrn)
+values ('90000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000001','A-NEW');
+do $assert$
+begin
+  begin
+    insert into public.patients(id,tenant_id,organization_id,local_mrn)
+    values ('90000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000003','CROSS-TENANT');
+    raise exception 'cross-tenant Patient insert unexpectedly succeeded';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.patients(id,tenant_id,organization_id,local_mrn)
+    values ('90000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000003','UNASSIGNED');
+    raise exception 'unassigned Organization Patient insert unexpectedly succeeded';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$assert$;
+reset role;
+reset request.jwt.claim.sub;
+
 -- User with no active assignment sees no facilities or facility-owned data.
 set role authenticated;
 set request.jwt.claim.sub='10000000-0000-0000-0000-000000000003';
