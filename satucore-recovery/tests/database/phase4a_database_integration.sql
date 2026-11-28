@@ -236,6 +236,56 @@ grant select, insert, update on public.data_imports, public.import_rows,
   public.patient_drafts, public.patient_draft_validation_reports,
   public.patient_identity_review_requests to authenticated;
 
+-- KFA authenticated-client privilege regression fixture. RLS policies remain the row-level boundary.
+create table public.medication_products (
+  id uuid primary key default gen_random_uuid(),
+  catalogue_key text not null,
+  product_code text not null
+);
+alter table public.medication_products enable row level security;
+create policy medication_products_authenticated_read on public.medication_products
+  for select to authenticated using (auth.uid() is not null);
+
+create table public.kfa_product_reviews (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null,
+  medication_product_id uuid not null,
+  decision text not null,
+  rationale text not null,
+  reviewed_by uuid not null,
+  reviewed_at timestamptz not null default now(),
+  unique (tenant_id, medication_product_id)
+);
+alter table public.kfa_product_reviews enable row level security;
+create policy kfa_review_tenant_read on public.kfa_product_reviews
+  for select to authenticated using (private.has_tenant_role(tenant_id,array['tenant_admin','clinic_admin','data_manager','reviewer']::text[]));
+create policy kfa_review_tenant_insert on public.kfa_product_reviews
+  for insert to authenticated with check (reviewed_by=auth.uid() and private.has_tenant_role(tenant_id,array['tenant_admin','clinic_admin','data_manager','reviewer']::text[]));
+create policy kfa_review_tenant_update on public.kfa_product_reviews
+  for update to authenticated using (private.has_tenant_role(tenant_id,array['tenant_admin','clinic_admin','data_manager','reviewer']::text[]))
+  with check (reviewed_by=auth.uid() and private.has_tenant_role(tenant_id,array['tenant_admin','clinic_admin','data_manager','reviewer']::text[]));
+
+\ir ../../supabase/migrations/20261128175000_grant_authenticated_kfa_catalogue_access.sql
+
+do $phase4a$
+begin
+  if not has_table_privilege('authenticated','public.medication_products','SELECT') then
+    raise exception 'ASSERTION FAILED: authenticated KFA catalogue SELECT privilege is missing';
+  end if;
+  if has_table_privilege('authenticated','public.medication_products','INSERT') then
+    raise exception 'ASSERTION FAILED: authenticated users must not write the shared KFA catalogue';
+  end if;
+  if not has_table_privilege('authenticated','public.kfa_product_reviews','SELECT')
+     or not has_table_privilege('authenticated','public.kfa_product_reviews','INSERT')
+     or not has_table_privilege('authenticated','public.kfa_product_reviews','UPDATE') then
+    raise exception 'ASSERTION FAILED: authenticated KFA clinic review privileges are incomplete';
+  end if;
+  if has_table_privilege('authenticated','public.kfa_product_reviews','DELETE') then
+    raise exception 'ASSERTION FAILED: authenticated users must not delete KFA review history';
+  end if;
+end;
+$phase4a$;
+
 \ir ../../supabase/migrations/20261120120000_bind_patient_creation_to_validated_draft.sql
 \ir ../../supabase/migrations/20261128172000_phase4a_invalidate_patient_drafts_on_input_change.sql
 
