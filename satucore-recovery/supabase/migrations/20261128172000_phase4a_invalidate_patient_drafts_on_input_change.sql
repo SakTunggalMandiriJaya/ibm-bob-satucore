@@ -4,7 +4,7 @@
 
 begin;
 
-create or replace function public.invalidate_patient_drafts_after_input_change()
+create or replace function private.invalidate_patient_drafts_after_input_change()
 returns trigger
 language plpgsql
 security definer
@@ -87,7 +87,7 @@ begin
 end;
 $function$;
 
-revoke all on function public.invalidate_patient_drafts_after_input_change()
+revoke all on function private.invalidate_patient_drafts_after_input_change()
   from public, anon, authenticated;
 
 drop trigger if exists trg_invalidate_patient_draft_after_source_update
@@ -97,7 +97,7 @@ create trigger trg_invalidate_patient_draft_after_source_update
 after update of original_data on public.import_rows
 for each row
 when (old.original_data is distinct from new.original_data)
-execute function public.invalidate_patient_drafts_after_input_change();
+execute function private.invalidate_patient_drafts_after_input_change();
 
 drop trigger if exists trg_invalidate_patient_drafts_after_patient_mapping_change
   on public.field_mappings;
@@ -105,9 +105,9 @@ drop trigger if exists trg_invalidate_patient_drafts_after_patient_mapping_chang
 create trigger trg_invalidate_patient_drafts_after_patient_mapping_change
 after insert or update or delete on public.field_mappings
 for each row
-execute function public.invalidate_patient_drafts_after_input_change();
+execute function private.invalidate_patient_drafts_after_input_change();
 
-comment on function public.invalidate_patient_drafts_after_input_change() is
+comment on function private.invalidate_patient_drafts_after_input_change() is
   'Marks affected Patient Drafts stale and clears validation evidence after persisted source-row or Patient mapping changes.';
 
 commit;
