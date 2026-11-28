@@ -684,6 +684,10 @@ function App() {
       );
       return;
     }
+    if (!workspace.organizationId) {
+      setNotice("Select an authorized facility before using the KFA catalogue.");
+      return;
+    }
     try {
       setKfaBusy(true);
       const { data, error } = await supabase.functions.invoke("kfa-catalogue", {
