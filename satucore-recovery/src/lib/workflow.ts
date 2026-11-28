@@ -56,13 +56,36 @@ export async function getWorkspace(session: Session): Promise<Workspace> {
 
   const membership: any = memberships[0]
 
-  const { data: orgs, error: orgError } = await db.from('organizations')
+  // Facility-level access is explicit for ordinary users. Tenant administrators
+  // may see all active Organizations; other roles must have an active assignment.
+  let organizationQuery = db.from('organizations')
+    .select('id,name').eq('tenant_id', membership.tenant_id).eq('active', true)
 
-    .select('id,name').eq('tenant_id', membership.tenant_id).eq('active', true).order('created_at')
+  if (membership.role !== 'tenant_admin') {
+    const { data: assignments, error: assignmentError } = await db.from('organization_members')
+      .select('organization_id')
+      .eq('tenant_id', membership.tenant_id)
+      .eq('user_id', session.user.id)
+      .eq('status', 'active')
+    if (assignmentError) throw assignmentError
+    const assignedIds = (assignments ?? []).map((item: { organization_id: string }) => item.organization_id)
+    if (!assignedIds.length) {
+      return {
+        tenantId: membership.tenant_id,
+        tenantName: membership.tenants?.name ?? 'Clinic workspace',
+        role: membership.role,
+        organizationId: null,
+        organizationName: null,
+        userId: session.user.id
+      }
+    }
+    organizationQuery = organizationQuery.in('id', assignedIds) as typeof organizationQuery
+  }
 
+  const { data: orgs, error: orgError } = await organizationQuery.order('created_at')
   if (orgError) throw orgError
 
-  if ((orgs ?? []).length > 1) throw new Error('This clinic has multiple active Organizations. Select the facility explicitly before importing or submitting data.')
+  if ((orgs ?? []).length > 1) throw new Error('This account has access to multiple facilities. Facility selection is required before opening clinical workflows.')
 
   return {
 
