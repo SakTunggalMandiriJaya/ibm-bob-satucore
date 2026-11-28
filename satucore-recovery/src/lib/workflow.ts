@@ -8,7 +8,7 @@ export type SourceRow = Record<string, string>
 
 export type Mapping = { source: string; target: string; confidence: number; approved: boolean }
 
-export type Workspace = { tenantId: string; tenantName: string; role: string; organizationId: string | null; organizationName: string | null; userId: string }
+export type Workspace = { tenantId: string; tenantName: string; role: string; organizationId: string | null; organizationName: string | null; userId: string; availableOrganizations?: { id: string; name: string }[] }
 
 
 
@@ -85,7 +85,15 @@ export async function getWorkspace(session: Session): Promise<Workspace> {
   const { data: orgs, error: orgError } = await organizationQuery.order('created_at')
   if (orgError) throw orgError
 
-  if ((orgs ?? []).length > 1) throw new Error('This account has access to multiple facilities. Facility selection is required before opening clinical workflows.')
+  if ((orgs ?? []).length > 1) return {
+    tenantId: membership.tenant_id,
+    tenantName: membership.tenants?.name ?? 'Clinic workspace',
+    role: membership.role,
+    organizationId: null,
+    organizationName: null,
+    userId: session.user.id,
+    availableOrganizations: orgs
+  }
 
   return {
 
