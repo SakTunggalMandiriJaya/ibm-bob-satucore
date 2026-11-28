@@ -10,7 +10,10 @@ describe("Phase 4B facility administration contract", () => {
     const workflow = read("src/lib/workflow.ts");
     expect(workflow).toContain("from('organization_members')");
     expect(workflow).toContain(".eq('status', 'active')");
-    expect(workflow).toContain("membership.role !== 'tenant_admin'");
+    expect(workflow).toContain("if (membership.role === 'tenant_admin')");
+    expect(workflow).toMatch(
+      /else\s*\{[\s\S]*?from\('organization_members'\)[\s\S]*?\.eq\('user_id', session\.user\.id\)[\s\S]*?\.eq\('status', 'active'\)/
+    );
     expect(workflow).toContain("availableOrganizations: orgs ?? []");
   });
 
