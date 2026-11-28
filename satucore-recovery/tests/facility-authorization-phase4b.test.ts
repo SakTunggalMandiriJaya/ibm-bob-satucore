@@ -19,6 +19,11 @@ describe("Phase 4B facility-level authorization", () => {
     expect(migration).toMatch(/om\.user_id = auth\.uid\(\)/);
   });
 
+  it("restricts Organization directory rows to their assigned facility", () => {
+    expect(migration).toContain("elsif p_table_name = 'organizations' then");
+    expect(migration).toContain("v_org_id := nullif(p_row->>'id','')::uuid;");
+  });
+
   it("validates tenant and Organization consistency for every assignment", () => {
     expect(migration).toContain("Organization membership must reference an Organization in the same tenant");
     expect(migration).toContain("Organization assignment requires an active tenant membership");
