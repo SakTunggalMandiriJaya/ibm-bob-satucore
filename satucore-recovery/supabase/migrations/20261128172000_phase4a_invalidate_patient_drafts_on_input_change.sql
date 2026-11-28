@@ -1,0 +1,96 @@
+-- Phase 4A follow-up: invalidate persisted Patient Draft validation when its inputs change.
+-- Existing source_row_corrections invalidation remains authoritative for correction-ledger inserts.
+-- This closes the two uncovered paths: direct source-row edits and Patient mapping changes.
+
+begin;
+
+create or replace function public.invalidate_patient_drafts_after_input_change()
+returns trigger
+language plpgsql
+security definer
+set search_path to ''
+as $function$
+begin
+  if tg_table_name = 'import_rows' then
+    if old.original_data is not distinct from new.original_data then
+      return null;
+    end if;
+
+    update public.patient_drafts d
+       set status = 'stale',
+           validation_report_id = null,
+           validated_at = null,
+           updated_by = coalesce(auth.uid(), d.updated_by)
+     where d.tenant_id = new.tenant_id
+       and d.import_id = new.import_id
+       and d.import_row_id = new.id
+       and d.status <> 'stale';
+
+    return null;
+  end if;
+
+  if tg_table_name = 'field_mappings' then
+    -- Invalidate the old import if a Patient mapping is removed or moved.
+    if tg_op in ('UPDATE', 'DELETE')
+       and old.target_resource = 'Patient'
+       and old.import_id is not null then
+      update public.patient_drafts d
+         set status = 'stale',
+             validation_report_id = null,
+             validated_at = null,
+             updated_by = coalesce(auth.uid(), d.updated_by)
+       where d.tenant_id = old.tenant_id
+         and d.import_id = old.import_id
+         and d.status <> 'stale';
+    end if;
+
+    -- Invalidate the new import if a Patient mapping is added or changed.
+    if tg_op in ('INSERT', 'UPDATE')
+       and new.target_resource = 'Patient'
+       and new.import_id is not null then
+      update public.patient_drafts d
+         set status = 'stale',
+             validation_report_id = null,
+             validated_at = null,
+             updated_by = coalesce(auth.uid(), d.updated_by)
+       where d.tenant_id = new.tenant_id
+         and d.import_id = new.import_id
+         and d.status <> 'stale';
+    end if;
+
+    return null;
+  end if;
+
+  raise exception 'Unsupported table for Patient Draft input invalidation: %', tg_table_name;
+end;
+$function$;
+
+revoke all on function public.invalidate_patient_drafts_after_input_change()
+  from public, anon, authenticated;
+
+drop trigger if exists trg_invalidate_patient_draft_after_source_update
+  on public.import_rows;
+
+create trigger trg_invalidate_patient_draft_after_source_update
+after update of original_data on public.import_rows
+for each row
+when (old.original_data is distinct from new.original_data)
+execute function public.invalidate_patient_drafts_after_input_change();
+
+drop trigger if exists trg_invalidate_patient_drafts_after_patient_mapping_change
+  on public.field_mappings;
+
+create trigger trg_invalidate_patient_drafts_after_patient_mapping_change
+after insert or update or delete on public.field_mappings
+for each row
+when (
+  (tg_op = 'INSERT' and new.target_resource = 'Patient')
+  or (tg_op = 'DELETE' and old.target_resource = 'Patient')
+  or (tg_op = 'UPDATE' and (old.target_resource = 'Patient' or new.target_resource = 'Patient'))
+)
+execute function public.invalidate_patient_drafts_after_input_change();
+
+comment on function public.invalidate_patient_drafts_after_input_change() is
+  'Marks affected Patient Drafts stale and clears validation evidence after persisted source-row or Patient mapping changes.';
+
+commit;
