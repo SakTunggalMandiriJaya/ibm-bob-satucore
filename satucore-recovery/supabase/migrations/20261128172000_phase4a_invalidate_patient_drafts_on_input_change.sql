@@ -1,6 +1,6 @@
 -- Phase 4A follow-up: invalidate persisted Patient Draft validation when its inputs change.
 -- Existing source_row_corrections invalidation remains authoritative for correction-ledger inserts.
--- This closes the two uncovered paths: direct source-row edits and Patient mapping changes.
+-- This closes the uncovered paths: direct source-row edits, Patient mapping changes, and import scope changes.
 
 begin;
 
@@ -138,6 +138,6 @@ for each row
 execute function private.invalidate_patient_drafts_after_input_change();
 
 comment on function private.invalidate_patient_drafts_after_input_change() is
-  'Marks affected Patient Drafts stale and clears validation evidence after persisted source-row or Patient mapping changes.';
+  'Marks affected Patient Drafts stale and clears validation evidence after source-row, Patient mapping, or import Organization/source-system changes.';
 
 commit;
