@@ -41,6 +41,7 @@ create table public.clinical_documents(
 create table public.data_imports(
   id uuid primary key, tenant_id uuid not null, organization_id uuid not null, source_system_id uuid
 );
+create table public.schema_profiles(id uuid primary key, tenant_id uuid not null, import_id uuid not null, profile jsonb default '{}'::jsonb);
 create table public.import_rows(
   id uuid primary key, tenant_id uuid not null, import_id uuid not null, row_number integer,
   source_record_key text, original_data jsonb, normalized_data jsonb, processing_status text, issues jsonb
@@ -125,6 +126,14 @@ alter table public.clinical_documents enable row level security;
 create policy tenant_base_docs on public.clinical_documents for all to authenticated
   using (exists(select 1 from public.tenant_members tm where tm.tenant_id=clinical_documents.tenant_id and tm.user_id=auth.uid() and tm.status='active'))
   with check (exists(select 1 from public.tenant_members tm where tm.tenant_id=clinical_documents.tenant_id and tm.user_id=auth.uid() and tm.status='active'));
+alter table public.data_imports enable row level security;
+create policy tenant_base_imports on public.data_imports for all to authenticated
+  using (exists(select 1 from public.tenant_members tm where tm.tenant_id=data_imports.tenant_id and tm.user_id=auth.uid() and tm.status='active'))
+  with check (exists(select 1 from public.tenant_members tm where tm.tenant_id=data_imports.tenant_id and tm.user_id=auth.uid() and tm.status='active'));
+alter table public.schema_profiles enable row level security;
+create policy tenant_base_schema_profiles on public.schema_profiles for all to authenticated
+  using (exists(select 1 from public.tenant_members tm where tm.tenant_id=schema_profiles.tenant_id and tm.user_id=auth.uid() and tm.status='active'))
+  with check (exists(select 1 from public.tenant_members tm where tm.tenant_id=schema_profiles.tenant_id and tm.user_id=auth.uid() and tm.status='active'));
 
 \ir ../../supabase/migrations/20261128173000_phase4b_facility_level_authorization.sql
 
@@ -138,11 +147,20 @@ insert into public.tenant_members(tenant_id,user_id,role,status) values
 insert into public.organizations(id,tenant_id,name) values
  ('80000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','Facility A'),
  ('80000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001','Facility B'),
+ ('80000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000001','Facility C'),
  ('80000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000002','Tenant B Facility');
 insert into public.organization_members(tenant_id,organization_id,user_id,status) values
  ('00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','active'),
  ('00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000001','active'),
  ('00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000003','revoked');
+insert into public.data_imports(id,tenant_id,organization_id) values
+ ('70000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000001'),
+ ('70000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000002'),
+ ('70000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000004');
+insert into public.schema_profiles(id,tenant_id,import_id) values
+ ('71000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','70000000-0000-0000-0000-000000000001'),
+ ('71000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001','70000000-0000-0000-0000-000000000002'),
+ ('71000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000001','70000000-0000-0000-0000-000000000004');
 insert into public.patients(id,tenant_id,organization_id,local_mrn) values
  ('90000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000001','A-1'),
  ('90000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000002','B-1'),
@@ -159,6 +177,7 @@ begin
   if (select count(*) from public.organizations) <> 2 then raise exception 'assigned user Organization scope failed'; end if;
   if (select count(*) from public.patients) <> 2 then raise exception 'assigned user Patient scope failed'; end if;
   if (select count(*) from public.clinical_documents) <> 2 then raise exception 'relationship-based clinical document scope failed'; end if;
+  if (select count(*) from public.schema_profiles) <> 2 then raise exception 'import-linked schema profile facility scope failed'; end if;
 end;
 $assert$;
 reset role;
@@ -212,7 +231,7 @@ set role authenticated;
 set request.jwt.claim.sub='10000000-0000-0000-0000-000000000002';
 do $assert$
 begin
-  if (select count(*) from public.organizations) <> 2 then raise exception 'tenant admin did not see all tenant Organizations'; end if;
+  if (select count(*) from public.organizations) <> 3 then raise exception 'tenant admin did not see all tenant Organizations'; end if;
   if (select count(*) from public.patients) <> 3 then raise exception 'tenant admin did not see all tenant Patients'; end if;
 end;
 $assert$;
