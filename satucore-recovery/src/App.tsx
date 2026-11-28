@@ -1941,7 +1941,29 @@ const issues = useMemo(
               </button>
             </div>
           )}
-          {page === "Overview" ? (
+          {workspace?.availableOrganizations?.length ? (
+            <>
+              <PageTitle eyebrow="FACILITY SELECTION" title="Choose your facility" desc="Your account has access to multiple facilities. Select the Organization for this working session before accessing clinical data." />
+              <div className="panel settings-panel">
+                {workspace.availableOrganizations.map((organization) => (
+                  <div className="settings-line" key={organization.id}>
+                    <span><b>{organization.name}</b><small>Authorized facility · {organization.id}</small></span>
+                    <button className="primary-btn" onClick={() => {
+                      setWorkspace({ ...workspace, organizationId: organization.id, organizationName: organization.name, availableOrganizations: undefined });
+                      setTenant(organization.name);
+                      setNotice("Facility selected: " + organization.name + ". Clinical workflows are now scoped to this Organization.");
+                    }}>Open facility <ArrowRight size={15}/></button>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : workspace && !workspace.organizationId ? (
+            <div className="empty-state">
+              <div className="empty-icon"><ShieldCheck size={28}/></div>
+              <h3>No facility access assigned</h3>
+              <p>Your tenant membership is active, but no Organization has been assigned to your account. Ask your tenant administrator to grant access. No clinical facility data is available in this session.</p>
+            </div>
+          ) : page === "Overview" ? (
             <>
               <div className="welcome-row">
                 <div>
