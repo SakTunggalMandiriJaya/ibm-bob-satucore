@@ -854,7 +854,7 @@ begin
 
   return query select v_request.id, false, v_attempt;
 end;
-$function$
+$function$;
 
 CREATE OR REPLACE FUNCTION public.decide_patient_identity_review(p_review_id uuid, p_decision text, p_candidate_patient_id uuid DEFAULT NULL::uuid, p_comment text DEFAULT NULL::text)
  RETURNS TABLE(review_id uuid, decision text, linked_patient_id uuid, row_status text)
@@ -896,7 +896,7 @@ begin
     p_review_id, p_decision, p_candidate_patient_id, p_comment
   ) d;
 end;
-$function$
+$function$;
 
 CREATE OR REPLACE FUNCTION public.scan_import_patient_duplicates(p_import_id uuid)
  RETURNS TABLE(findings_count integer, exact_identifier_count integer, possible_name_count integer)
@@ -1069,7 +1069,6 @@ begin
 
   return query select v_count,v_exact,v_names;
 end;
-$function$
-
+$function$;
 
 commit;
