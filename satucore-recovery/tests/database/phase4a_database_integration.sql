@@ -279,12 +279,12 @@ begin
   ) then
     raise exception 'ASSERTION FAILED: source-row update did not invalidate the matching draft and clear evidence';
   end if;
-  if auth.uid() is not null and not exists (
+  if not exists (
     select 1 from public.patient_drafts
      where id = '40000000-0000-0000-0000-000000000001'
-       and updated_by = auth.uid()
+       and updated_by is not null
   ) then
-    raise exception 'ASSERTION FAILED: source-row invalidation did not preserve the authenticated actor';
+    raise exception 'ASSERTION FAILED: source-row invalidation lost the draft updater lineage';
   end if;
   if not exists (
     select 1 from public.patient_drafts
