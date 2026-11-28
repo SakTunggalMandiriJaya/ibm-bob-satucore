@@ -5,6 +5,7 @@ import {
   ACTIONS,
   canRunAction,
   isActiveMembershipForTenant,
+  isAuthorizedForOrganization,
   isKnownAction,
   isPermittedIdentifierSystem,
   summarizePatientResponse
@@ -410,7 +411,7 @@ Deno.serve(async (req: Request) => {
   if (membership.role !== "tenant_admin") {
     const { data: assignment, error: assignmentError } = await admin
       .from("organization_members")
-      .select("id")
+      .select("organization_id,status")
       .eq("tenant_id", tenantId)
       .eq("organization_id", organization.id)
       .eq("user_id", auth.user.id)
@@ -432,7 +433,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    if (!assignment) {
+    if (!isAuthorizedForOrganization(membership.role, assignment)) {
       return auditedResponse(
         {
           success: false,
