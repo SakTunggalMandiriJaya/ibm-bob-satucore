@@ -379,6 +379,39 @@ begin
 end;
 $phase4a$;
 
+-- Revalidate the fixture, then prove an Organization/source-system change invalidates it.
+update public.patient_drafts
+   set status = 'validated',
+       validation_report_id = '60000000-0000-0000-0000-000000000001',
+       validated_at = now()
+ where id = '40000000-0000-0000-0000-000000000001';
+
+update public.data_imports
+   set organization_id = '80000000-0000-0000-0000-000000000002',
+       source_system_id = '90000000-0000-0000-0000-000000000002'
+ where id = '30000000-0000-0000-0000-000000000001';
+
+do $phase4a$
+begin
+  if not exists (
+    select 1 from public.patient_drafts
+     where id = '40000000-0000-0000-0000-000000000001'
+       and status = 'stale'
+       and validation_report_id is null
+       and validated_at is null
+  ) then
+    raise exception 'ASSERTION FAILED: import Organization/source-system change did not invalidate the draft';
+  end if;
+  if not exists (
+    select 1 from public.patient_drafts
+     where id = '40000000-0000-0000-0000-000000000002'
+       and status = 'validated'
+  ) then
+    raise exception 'ASSERTION FAILED: import scope change crossed tenant/import boundaries';
+  end if;
+end;
+$phase4a$;
+
 reset request.jwt.claim.sub;
 
 -- The Patient creation RPC must reject stale drafts before any canonical write.
@@ -389,7 +422,7 @@ begin
   begin
     perform public.create_patient_from_validated_import(
       '00000000-0000-0000-0000-000000000001',
-      '80000000-0000-0000-0000-000000000001',
+      '80000000-0000-0000-0000-000000000002',
       '30000000-0000-0000-0000-000000000001',
       '20000000-0000-0000-0000-000000000001',
       '60000000-0000-0000-0000-000000000001',
@@ -412,7 +445,7 @@ begin
   begin
     perform public.create_patient_from_validated_import(
       '00000000-0000-0000-0000-000000000001',
-      '80000000-0000-0000-0000-000000000002',
+      '80000000-0000-0000-0000-000000000001',
       '30000000-0000-0000-0000-000000000001',
       '20000000-0000-0000-0000-000000000001',
       '60000000-0000-0000-0000-000000000001',
