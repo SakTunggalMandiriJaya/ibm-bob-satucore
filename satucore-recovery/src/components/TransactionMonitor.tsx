@@ -56,19 +56,20 @@ export function TransactionMonitor({ workspace }: Props) {
       setLoading(false);
       return;
     }
+    const db = supabase;
     setLoading(true);
     setError("");
     const [listResult, ...countResults] = await Promise.all([
-      supabase.from("integration_transactions")
+      db.from("integration_transactions")
         .select("id,tenant_id,organization_id,connection_id,fhir_resource_id,transaction_type,endpoint,http_method,request_reference,response_status,response_body,error_code,error_message_sanitized,idempotency_key,transaction_status,submitted_at,responded_at,created_at")
         .eq("tenant_id", workspace.tenantId)
         .order("created_at", { ascending: false })
         .limit(100),
-      ...statuses.map((value) => supabase.from("integration_transactions")
+      ...statuses.map((value) => db.from("integration_transactions")
         .select("id", { count: "exact", head: true })
         .eq("tenant_id", workspace.tenantId)
         .eq("transaction_status", value)),
-      supabase.from("integration_transactions")
+      db.from("integration_transactions")
         .select("id", { count: "exact", head: true })
         .eq("tenant_id", workspace.tenantId),
     ]);
