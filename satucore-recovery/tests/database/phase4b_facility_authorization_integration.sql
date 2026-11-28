@@ -11,7 +11,11 @@ create or replace function storage.foldername(p_name text)
 returns text[] language sql immutable
 as $fn$
   select string_to_array(
-    regexp_replace(p_name, '/[^/]*
+    regexp_replace(p_name, '/[^/]*$', ''),
+    '/'
+  );
+$fn$;
+
 do $roles$
 begin
   if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
