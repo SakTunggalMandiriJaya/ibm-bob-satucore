@@ -366,4 +366,23 @@ begin
 end;
 $assert$;
 
+-- Tenant-level reference tables are explicit exceptions; unknown table names fail closed.
+set role authenticated;
+set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';
+do $assert$
+begin
+  if not private.can_access_row(
+    '00000000-0000-0000-0000-000000000001','reference_sync_logs','{"tenant_id":"00000000-0000-0000-0000-000000000001"}'::jsonb
+  ) then raise exception 'tenant-level reference sync log access was unexpectedly denied'; end if;
+  if not private.can_access_row(
+    '00000000-0000-0000-0000-000000000001','terminology_mappings','{"tenant_id":"00000000-0000-0000-0000-000000000001"}'::jsonb
+  ) then raise exception 'tenant-level terminology mapping access was unexpectedly denied'; end if;
+  if private.can_access_row(
+    '00000000-0000-0000-0000-000000000001','unregistered_table','{}'::jsonb
+  ) then raise exception 'unknown facility table did not fail closed'; end if;
+end;
+$assert$;
+reset role;
+reset request.jwt.claim.sub;
+
 select 'Phase 4B PostgreSQL facility authorization checks passed' as result;
