@@ -723,7 +723,13 @@ function App() {
       setPersisting(true);
       const { data, error } = await supabase.functions.invoke(
         "satusehat-connectivity-test",
-        { body: { action: "preflight", tenant_id: workspace?.tenantId } },
+        {
+          body: {
+            action: "preflight",
+            tenant_id: workspace.tenantId,
+            organization_id: workspace.organizationId
+          }
+        },
       );
       if (error) throw error;
       setSandboxResult(data);
