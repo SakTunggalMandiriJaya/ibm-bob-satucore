@@ -30,38 +30,60 @@ begin
   end if;
 
   if tg_table_name = 'field_mappings' then
-    -- Invalidate the old import if a Patient mapping is removed or moved.
-    if tg_op in ('UPDATE', 'DELETE')
-       and old.target_resource = 'Patient'
-       and old.import_id is not null then
-      update public.patient_drafts d
-         set status = 'stale',
-             validation_report_id = null,
-             validated_at = null,
-             updated_by = coalesce(auth.uid(), d.updated_by)
-       where d.tenant_id = old.tenant_id
-         and d.import_id = old.import_id
-         and d.status <> 'stale';
-    end if;
+    if tg_op = 'INSERT' then
+      if new.target_resource = 'Patient' and new.import_id is not null then
+        update public.patient_drafts d
+           set status = 'stale',
+               validation_report_id = null,
+               validated_at = null,
+               updated_by = coalesce(auth.uid(), d.updated_by)
+         where d.tenant_id = new.tenant_id
+           and d.import_id = new.import_id
+           and d.status <> 'stale';
+      end if;
+      return null;
+    elsif tg_op = 'DELETE' then
+      if old.target_resource = 'Patient' and old.import_id is not null then
+        update public.patient_drafts d
+           set status = 'stale',
+               validation_report_id = null,
+               validated_at = null,
+               updated_by = coalesce(auth.uid(), d.updated_by)
+         where d.tenant_id = old.tenant_id
+           and d.import_id = old.import_id
+           and d.status <> 'stale';
+      end if;
+      return null;
+    elsif tg_op = 'UPDATE' then
+      -- Invalidate the old import if a Patient mapping is removed or moved.
+      if old.target_resource = 'Patient' and old.import_id is not null then
+        update public.patient_drafts d
+           set status = 'stale',
+               validation_report_id = null,
+               validated_at = null,
+               updated_by = coalesce(auth.uid(), d.updated_by)
+         where d.tenant_id = old.tenant_id
+           and d.import_id = old.import_id
+           and d.status <> 'stale';
+      end if;
 
-    -- Invalidate the new import if a Patient mapping is added or changed.
-    if tg_op in ('INSERT', 'UPDATE')
-       and new.target_resource = 'Patient'
-       and new.import_id is not null then
-      update public.patient_drafts d
-         set status = 'stale',
-             validation_report_id = null,
-             validated_at = null,
-             updated_by = coalesce(auth.uid(), d.updated_by)
-       where d.tenant_id = new.tenant_id
-         and d.import_id = new.import_id
-         and d.status <> 'stale';
+      -- Invalidate the new import if a Patient mapping is added or changed.
+      if new.target_resource = 'Patient' and new.import_id is not null then
+        update public.patient_drafts d
+           set status = 'stale',
+               validation_report_id = null,
+               validated_at = null,
+               updated_by = coalesce(auth.uid(), d.updated_by)
+         where d.tenant_id = new.tenant_id
+           and d.import_id = new.import_id
+           and d.status <> 'stale';
+      end if;
+      return null;
     end if;
-
-    return null;
   end if;
 
-  raise exception 'Unsupported table for Patient Draft input invalidation: %', tg_table_name;
+  raise exception 'Unsupported table or operation for Patient Draft input invalidation: % %',
+    tg_table_name, tg_op;
 end;
 $function$;
 
@@ -83,11 +105,6 @@ drop trigger if exists trg_invalidate_patient_drafts_after_patient_mapping_chang
 create trigger trg_invalidate_patient_drafts_after_patient_mapping_change
 after insert or update or delete on public.field_mappings
 for each row
-when (
-  (tg_op = 'INSERT' and new.target_resource = 'Patient')
-  or (tg_op = 'DELETE' and old.target_resource = 'Patient')
-  or (tg_op = 'UPDATE' and (old.target_resource = 'Patient' or new.target_resource = 'Patient'))
-)
 execute function public.invalidate_patient_drafts_after_input_change();
 
 comment on function public.invalidate_patient_drafts_after_input_change() is
