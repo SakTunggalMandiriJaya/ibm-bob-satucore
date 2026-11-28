@@ -404,6 +404,50 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  // Tenant membership alone is not sufficient for a facility-specific
+  // SATUSEHAT connection. Tenant administrators retain tenant-wide access;
+  // every other caller must have an active assignment to this exact facility.
+  if (membership.role !== "tenant_admin") {
+    const { data: assignment, error: assignmentError } = await admin
+      .from("organization_members")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("organization_id", organization.id)
+      .eq("user_id", auth.user.id)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (assignmentError) {
+      return auditedResponse(
+        {
+          success: false,
+          action,
+          stage: "authorization",
+          error: "Could not verify facility assignment."
+        },
+        500,
+        "failed",
+        { reason: "facility_assignment_lookup_failed" },
+        connection.id
+      );
+    }
+
+    if (!assignment) {
+      return auditedResponse(
+        {
+          success: false,
+          action,
+          stage: "authorization",
+          error: "Active assignment to this facility is required for this SATUSEHAT operation."
+        },
+        403,
+        "denied",
+        { reason: "facility_assignment_required" },
+        connection.id
+      );
+    }
+  }
+
   const clientId = Deno.env.get(
     connection.client_id_reference
   );
