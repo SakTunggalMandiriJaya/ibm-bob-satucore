@@ -690,6 +690,7 @@ function App() {
         body: {
           action,
           tenant_id: workspace.tenantId,
+          organization_id: workspace.organizationId,
           page: 1,
           size: 50,
           product_type: "farmasi",
