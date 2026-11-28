@@ -180,13 +180,17 @@ export async function persistImport(args: {
 
     const path = `${w.tenantId}/${importId}/${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
 
-    const { error: storageError } = await db.storage.from('legacy-imports').upload(path, file, { upsert: false, contentType: 'text/csv' })
+    // Persist the authoritative import-to-object relationship before Storage INSERT.
+    // The restrictive Storage policy resolves Organization ownership through this row.
+    const { error: pathError } = await db.from('data_imports')
+      .update({ storage_path: path, status: 'profiling' })
+      .eq('id', importId)
+      .eq('tenant_id', w.tenantId)
+    if (pathError) throw pathError
 
+    const { error: storageError } = await db.storage.from('legacy-imports')
+      .upload(path, file, { upsert: false, contentType: 'text/csv' })
     if (storageError) throw storageError
-
-    const { error: updateError } = await db.from('data_imports').update({ storage_path: path, status: 'profiling' }).eq('id', importId).eq('tenant_id', w.tenantId)
-
-    if (updateError) throw updateError
 
 
 
