@@ -19,7 +19,9 @@ describe("Phase 4B facility administration contract", () => {
     const app = read("src/App.tsx");
     expect(workflow).toContain("if ((orgs ?? []).length > 1) return");
     expect(app).toContain("Choose your facility");
-    expect(app).toContain("setWorkspace({ ...workspace, organizationId: organization.id");
+    expect(app).toMatch(
+      /const selectedWorkspace\s*=\s*\{\s*\.\.\.workspace,\s*organizationId:\s*organization\.id,\s*organizationName:\s*organization\.name,\s*availableOrganizations:\s*undefined\s*\};\s*setWorkspace\(selectedWorkspace\);/
+    );
   });
 
   it("restricts assignment management to tenant administrators", () => {
