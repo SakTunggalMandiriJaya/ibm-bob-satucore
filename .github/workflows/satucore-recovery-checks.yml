@@ -3,10 +3,10 @@ name: SATUCORE recovery application checks
 on:
   push:
     branches:
-      - "feature/transaction-monitor-2026-11-28"
+      - "feature/phase4a-maker-checker-hardening-2026-11-28"
   pull_request:
     branches:
-      - "feature/transaction-monitor-2026-11-28"
+      - "recovery/patient-scan-baseline-2026-11-26"
 
 jobs:
   app-checks:
