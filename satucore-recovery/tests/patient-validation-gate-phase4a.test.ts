@@ -6,7 +6,7 @@ const sql = readFileSync(join(
   process.cwd(),
   "supabase",
   "migrations",
-  "20261128171000_phase4a_enforce_validated_patient_draft.sql"
+  "20261120120000_bind_patient_creation_to_validated_draft.sql"
 ), "utf8");
 
 describe("Phase 4A server-side Patient validation gate", () => {
