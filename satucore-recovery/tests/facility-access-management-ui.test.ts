@@ -11,7 +11,7 @@ describe("Phase 4B facility administration contract", () => {
     expect(workflow).toContain("from('organization_members')");
     expect(workflow).toContain(".eq('status', 'active')");
     expect(workflow).toContain("membership.role !== 'tenant_admin'");
-    expect(workflow).toContain("availableOrganizations: orgs");
+    expect(workflow).toContain("availableOrganizations: orgs ?? []");
   });
 
   it("does not silently choose among multiple facilities", () => {
