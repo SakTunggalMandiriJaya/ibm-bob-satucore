@@ -214,6 +214,18 @@ $assert$;
 reset role;
 reset request.jwt.claim.sub;
 
+-- Assert the exact authorization inputs before exercising Storage RLS.
+do $assert$
+begin
+  if private.can_access_organization('00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000004') then
+    raise exception 'diagnostic: user unexpectedly has Facility C access';
+  end if;
+  if exists (select 1 from public.data_imports where id='70000000-0000-0000-0000-000000000006') then
+    raise exception 'diagnostic: Facility C import unexpectedly visible to assigned user';
+  end if;
+end;
+$assert$;
+
 -- Legacy object INSERT is permitted only when the pre-created import row proves facility ownership.
 -- Run as the assigned authenticated user; a superuser bypasses RLS and invalidates this check.
 set role authenticated;
