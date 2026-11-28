@@ -48,3 +48,12 @@ jobs:
           PGPASSWORD: postgres
           PGDATABASE: satucore_test
         run: psql -v ON_ERROR_STOP=1 -f tests/database/phase4a_database_integration.sql
+      - name: Run Phase 4B PostgreSQL facility authorization integration checks
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          createdb satucore_phase4b_test
+          PGDATABASE=satucore_phase4b_test psql -v ON_ERROR_STOP=1 -f tests/database/phase4b_facility_authorization_integration.sql
