@@ -11,6 +11,24 @@ security definer
 set search_path to ''
 as $function$
 begin
+  if tg_table_name = 'data_imports' then
+    if old.organization_id is not distinct from new.organization_id
+       and old.source_system_id is not distinct from new.source_system_id then
+      return null;
+    end if;
+
+    update public.patient_drafts d
+       set status = 'stale',
+           validation_report_id = null,
+           validated_at = null,
+           updated_by = coalesce(auth.uid(), d.updated_by)
+     where d.tenant_id = new.tenant_id
+       and d.import_id = new.id
+       and d.status <> 'stale';
+
+    return null;
+  end if;
+
   if tg_table_name = 'import_rows' then
     if old.original_data is not distinct from new.original_data then
       return null;
@@ -89,6 +107,18 @@ $function$;
 
 revoke all on function private.invalidate_patient_drafts_after_input_change()
   from public, anon, authenticated;
+
+drop trigger if exists trg_invalidate_patient_drafts_after_import_scope_change
+  on public.data_imports;
+
+create trigger trg_invalidate_patient_drafts_after_import_scope_change
+after update of organization_id, source_system_id on public.data_imports
+for each row
+when (
+  old.organization_id is distinct from new.organization_id
+  or old.source_system_id is distinct from new.source_system_id
+)
+execute function private.invalidate_patient_drafts_after_input_change();
 
 drop trigger if exists trg_invalidate_patient_draft_after_source_update
   on public.import_rows;
