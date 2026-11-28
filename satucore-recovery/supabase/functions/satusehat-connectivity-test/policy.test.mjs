@@ -4,6 +4,7 @@ import {
   ACTIONS,
   canRunAction,
   isActiveMembershipForTenant,
+  isAuthorizedForOrganization,
   isKnownAction,
   isPermittedIdentifierSystem,
   summarizePatientResponse
@@ -43,4 +44,18 @@ test("rejects the mislabeled MPI action and minimizes Patient results", () => {
     birth_date_present: true,
     gender_present: true
   });
+});
+
+
+test("requires an active assignment for facility-specific integration", () => {
+  assert.equal(isAuthorizedForOrganization("tenant_admin", null), true);
+  assert.equal(isAuthorizedForOrganization("clinic_admin", {
+    organization_id: "facility-a",
+    status: "active"
+  }), true);
+  assert.equal(isAuthorizedForOrganization("clinic_admin", null), false);
+  assert.equal(isAuthorizedForOrganization("clinician", {
+    organization_id: "facility-a",
+    status: "inactive"
+  }), false);
 });
