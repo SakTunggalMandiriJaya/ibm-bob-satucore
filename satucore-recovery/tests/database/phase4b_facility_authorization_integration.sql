@@ -191,6 +191,12 @@ do $assert$
 begin
   if (select count(*) from public.organizations) <> 0 then raise exception 'revoked-only user saw an Organization'; end if;
   if (select count(*) from public.patients) <> 0 then raise exception 'revoked-only user saw a Patient'; end if;
+  begin
+    insert into public.patients(id,tenant_id,organization_id,local_mrn)
+    values ('90000000-0000-0000-0000-000000000007','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000002','NO-ASSIGNMENT');
+    raise exception 'user without active assignment inserted a Patient';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $assert$;
 reset role;
