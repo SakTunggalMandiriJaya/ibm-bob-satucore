@@ -213,9 +213,15 @@ begin
        and status = 'stale'
        and validation_report_id is null
        and validated_at is null
-       and updated_by = '10000000-0000-0000-0000-000000000003'
   ) then
     raise exception 'ASSERTION FAILED: source-row update did not invalidate the matching draft and clear evidence';
+  end if;
+  if auth.uid() is not null and not exists (
+    select 1 from public.patient_drafts
+     where id = '40000000-0000-0000-0000-000000000001'
+       and updated_by = auth.uid()
+  ) then
+    raise exception 'ASSERTION FAILED: source-row invalidation did not preserve the authenticated actor';
   end if;
   if not exists (
     select 1 from public.patient_drafts
