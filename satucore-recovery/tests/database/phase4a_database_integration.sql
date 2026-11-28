@@ -244,8 +244,15 @@ begin
   ) then
     raise exception 'ASSERTION FAILED: Patient mapping update did not invalidate its import drafts';
   end if;
+  if not exists (
+    select 1 from public.patient_drafts
+     where id = '40000000-0000-0000-0000-000000000002'
+       and status = 'validated'
+  ) then
+    raise exception 'ASSERTION FAILED: Patient mapping update crossed tenant/import boundaries';
+  end if;
 end;
-$$;
+$;
 
 -- A non-Patient mapping must not invalidate Patient drafts.
 update public.patient_drafts
