@@ -20,8 +20,10 @@ Deno.serve(async (req) => {
 
   const admin = createClient(url, serviceKey);
   const body = await req.json().catch(() => ({}));
-  const tenantId = String(body.tenant_id ?? "");
+  const tenantId = String(body.tenant_id ?? "").trim();
+  const organizationId = String(body.organization_id ?? "").trim();
   if (!tenantId) return json({ error: "tenant_id is required" }, 400);
+  if (!organizationId) return json({ error: "organization_id is required; select a facility before using KFA" }, 400);
 
   const { data: membership, error: memberError } = await admin.from("tenant_members")
     .select("role,status").eq("tenant_id", tenantId).eq("user_id", auth.user.id).eq("status", "active").maybeSingle();
@@ -32,10 +34,26 @@ Deno.serve(async (req) => {
 
   const { data: connections, error: connError } = await admin.from("satusehat_connections")
     .select("id,organization_id,environment,client_id_reference,client_secret_reference,token_url,api_base_url,authorization_scope,connection_status")
-    .eq("tenant_id", tenantId);
-  if (connError) return json({ error: "Could not resolve clinic SATUSEHAT connection" }, 500);
+    .eq("tenant_id", tenantId)
+    .eq("organization_id", organizationId);
+  if (connError) return json({ error: "Could not resolve facility SATUSEHAT connection" }, 500);
   const connection = (connections ?? []).find((c: any) => ["sandbox", "staging"].includes(String(c.environment).toLowerCase()) && c.connection_status === "active");
   if (!connection) return json({ error: "No active staging SATUSEHAT connection is configured for this clinic." }, 409);
+  if (connection.organization_id !== organizationId)
+    return json({ error: "Resolved SATUSEHAT connection does not match the selected facility." }, 409);
+
+  if (membership.role !== "tenant_admin") {
+    const { data: assignment, error: assignmentError } = await admin.from("organization_members")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("organization_id", organizationId)
+      .eq("user_id", auth.user.id)
+      .eq("status", "active")
+      .maybeSingle();
+    if (assignmentError) return json({ error: "Could not verify facility assignment." }, 500);
+    if (!assignment) return json({ error: "Active assignment to the selected facility is required for KFA operations." }, 403);
+  }
+
   if (!connection.organization_id || !connection.client_id_reference || !connection.client_secret_reference)
     return json({ error: "Clinic connection is missing Organization or credential references." }, 409);
   const configuredApiBase = String(connection.api_base_url ?? "").replace(/\/+$/, "");
