@@ -168,7 +168,8 @@ begin
       end if;
     end if;
   elsif p_table_name in ('field_mappings','import_rows','patient_drafts',
-                          'patient_draft_validation_reports','source_row_corrections') then
+                          'patient_draft_validation_reports','source_row_corrections',
+                          'schema_profiles') then
     v_import_id := nullif(p_row->>'import_id','')::uuid;
     if v_import_id is not null then
       select di.organization_id into v_org_id from public.data_imports di
@@ -714,5 +715,361 @@ $function$;
 
 revoke all on function public.create_patient_from_validated_import(uuid,uuid,uuid,uuid,uuid,jsonb,jsonb,jsonb,text) from public;
 grant execute on function public.create_patient_from_validated_import(uuid,uuid,uuid,uuid,uuid,jsonb,jsonb,jsonb,text) to authenticated, service_role;
+
+-- Facility-scope privileged RPCs as well as direct table access. SECURITY DEFINER bypasses RLS,
+-- so each entry point must independently verify the caller's Organization assignment.
+CREATE OR REPLACE FUNCTION public.create_patient_identity_review_request(p_tenant_id uuid, p_organization_id uuid, p_import_id uuid, p_row_number integer, p_incoming_mrn text, p_reason text, p_candidate_patient_id uuid DEFAULT NULL::uuid)
+ RETURNS TABLE(request_id uuid, existing boolean, attempt_number integer)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_user_id uuid := auth.uid();
+  v_reason text;
+  v_mrn text := nullif(btrim(coalesce(p_incoming_mrn, '')), '');
+  v_import public.data_imports%rowtype;
+  v_source public.import_rows%rowtype;
+  v_pending public.patient_identity_review_requests%rowtype;
+  v_attempt integer;
+  v_request public.patient_identity_review_requests%rowtype;
+  v_candidate_valid boolean;
+begin
+  if v_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if p_tenant_id is null or p_organization_id is null or p_import_id is null
+     or p_row_number is null or p_row_number < 1 then
+    raise exception 'Tenant, Organization, import and positive source row number are required';
+  end if;
+  if v_mrn is null then
+    raise exception 'Incoming MRN is required';
+  end if;
+  v_reason := nullif(btrim(coalesce(p_reason, '')), '');
+  if v_reason is null or length(v_reason) < 10 or length(v_reason) > 2000 then
+    raise exception 'Review rationale must contain between 10 and 2000 characters';
+  end if;
+
+  if not exists (
+    select 1
+    from public.tenant_members tm
+    where tm.tenant_id = p_tenant_id
+      and tm.user_id = v_user_id
+      and tm.status = 'active'
+      and tm.role in ('tenant_admin', 'clinic_admin', 'data_manager', 'clinician', 'reviewer')
+  ) or not private.can_access_organization(p_tenant_id, p_organization_id) then
+    raise exception 'Active authorized facility membership required to request identity review' using errcode = '42501';
+  end if;
+
+  select di.* into v_import
+  from public.data_imports di
+  where di.id = p_import_id
+    and di.tenant_id = p_tenant_id
+    and di.organization_id = p_organization_id
+  for update;
+  if not found then
+    raise exception 'Import does not belong to the selected tenant and Organization';
+  end if;
+
+  select ir.* into v_source
+  from public.import_rows ir
+  where ir.tenant_id = p_tenant_id
+    and ir.import_id = p_import_id
+    and ir.row_number = p_row_number
+  for update;
+  if not found then
+    raise exception 'Source row does not belong to the selected tenant and import';
+  end if;
+
+  -- The partial unique index is one pending request per tenant/source row,
+  -- irrespective of MRN. Return that request idempotently without mutation.
+  select r.* into v_pending
+  from public.patient_identity_review_requests r
+  where r.tenant_id = p_tenant_id
+    and r.import_row_id = v_source.id
+    and r.decision = 'pending'
+  limit 1;
+  if found then
+    return query select v_pending.id, true, v_pending.attempt_number;
+    return;
+  end if;
+
+  if exists (
+    select 1 from public.patient_source_links l
+    where l.tenant_id = p_tenant_id and l.import_row_id = v_source.id
+  ) then
+    raise exception 'Source row is already linked to a canonical Patient';
+  end if;
+
+  if p_candidate_patient_id is not null then
+    select exists (
+      select 1
+      from public.patients p
+      where p.id = p_candidate_patient_id
+        and p.tenant_id = p_tenant_id
+        and p.organization_id = p_organization_id
+        and p.local_mrn = v_mrn
+    ) into v_candidate_valid;
+    if not v_candidate_valid then
+      raise exception 'Suggested candidate must match the same tenant, Organization and incoming MRN';
+    end if;
+  end if;
+
+  select coalesce(max(r.attempt_number), 0) + 1
+    into v_attempt
+  from public.patient_identity_review_requests r
+  where r.tenant_id = p_tenant_id
+    and r.import_row_id = v_source.id;
+
+  insert into public.patient_identity_review_requests (
+    tenant_id, organization_id, import_id, import_row_id,
+    incoming_mrn, incoming_snapshot, candidate_patient_id,
+    attempt_number, decision
+  ) values (
+    p_tenant_id, p_organization_id, p_import_id, v_source.id,
+    v_mrn, coalesce(v_source.original_data, '{}'::jsonb), p_candidate_patient_id,
+    v_attempt, 'pending'
+  )
+  returning * into v_request;
+
+  -- Avoid writing a 16-digit national identifier if pasted into free text.
+  v_reason := regexp_replace(v_reason, '\m[0-9]{16}\M', '************', 'g');
+
+  insert into public.audit_logs (
+    tenant_id, actor_user_id, action, entity_type, entity_id, outcome, metadata
+  ) values (
+    p_tenant_id, v_user_id, 'patient_identity_review_requested',
+    'patient_identity_review_request', v_request.id::text, 'success',
+    jsonb_build_object(
+      'import_id', p_import_id,
+      'import_row_id', v_source.id,
+      'row_number', p_row_number,
+      'incoming_mrn', v_mrn,
+      'candidate_patient_id', p_candidate_patient_id,
+      'attempt_number', v_attempt,
+      'reason', v_reason
+    )
+  );
+
+  return query select v_request.id, false, v_attempt;
+end;
+$function$
+
+CREATE OR REPLACE FUNCTION public.decide_patient_identity_review(p_review_id uuid, p_decision text, p_candidate_patient_id uuid DEFAULT NULL::uuid, p_comment text DEFAULT NULL::text)
+ RETURNS TABLE(review_id uuid, decision text, linked_patient_id uuid, row_status text)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_user_id uuid := auth.uid();
+  v_tenant_id uuid;
+  v_organization_id uuid;
+begin
+  if v_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select r.tenant_id, r.organization_id into v_tenant_id, v_organization_id
+  from public.patient_identity_review_requests r
+  where r.id = p_review_id;
+
+  if not found then
+    raise exception 'Identity review request not found';
+  end if;
+
+  if not exists (
+    select 1
+    from public.tenant_members tm
+    where tm.tenant_id = v_tenant_id
+      and tm.user_id = v_user_id
+      and tm.status = 'active'
+      and tm.role in ('tenant_admin', 'clinic_admin', 'data_manager')
+  ) or not private.can_access_organization(v_tenant_id, v_organization_id) then
+    raise exception 'Not authorized for this facility Patient identity review' using errcode = '42501';
+  end if;
+
+  return query
+  select d.review_id, d.decision, d.linked_patient_id, d.row_status
+  from public.decide_patient_identity_review_internal(
+    p_review_id, p_decision, p_candidate_patient_id, p_comment
+  ) d;
+end;
+$function$
+
+CREATE OR REPLACE FUNCTION public.scan_import_patient_duplicates(p_import_id uuid)
+ RETURNS TABLE(findings_count integer, exact_identifier_count integer, possible_name_count integer)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  v_user uuid := auth.uid();
+  v_tenant uuid;
+  v_org uuid;
+  v_source_system uuid;
+  v_count integer := 0;
+  v_exact integer := 0;
+  v_names integer := 0;
+  v_rows integer;
+begin
+  if v_user is null then raise exception 'Authentication required'; end if;
+
+  select di.tenant_id,di.organization_id,di.source_system_id
+    into v_tenant,v_org,v_source_system
+  from public.data_imports di
+  where di.id=p_import_id;
+
+  if not found then raise exception 'Import not found'; end if;
+  if not private.has_tenant_role(v_tenant,array['tenant_admin','clinic_admin','data_manager']::text[])
+     or not private.can_access_organization(v_tenant,v_org) then
+    raise exception 'Not authorized to run duplicate detection for this facility' using errcode = '42501';
+  end if;
+
+  select count(*) into v_rows from public.import_rows ir
+  where ir.import_id=p_import_id and ir.tenant_id=v_tenant;
+  if v_rows > 5000 then raise exception 'Import exceeds the 5,000-row duplicate scan limit'; end if;
+
+  delete from public.identity_duplicate_findings f
+  where f.tenant_id=v_tenant and f.import_id=p_import_id and f.status='detected';
+
+  with src as (
+    select ir.id,ir.row_number,ir.original_data,
+      lower(regexp_replace(trim(coalesce(
+        (select value from jsonb_each_text(ir.original_data) where lower(key) in ('nik','national_id','national_identifier') limit 1),''
+      )),'[^[:alnum:]]','','g')) as nik,
+      lower(regexp_replace(trim(coalesce(
+        (select value from jsonb_each_text(ir.original_data) where lower(key) in ('mrn','medical_record_number','medical_record_no','no_rm','nomor_rm') limit 1),''
+      )),'[^[:alnum:]]','','g')) as mrn,
+      lower(regexp_replace(trim(coalesce(
+        (select value from jsonb_each_text(ir.original_data) where lower(key) in ('patient_no','legacy_patient_id','source_patient_id','patient_id') limit 1),''
+      )),'[^[:alnum:]]','','g')) as source_id,
+      lower(regexp_replace(trim(coalesce(
+        (select value from jsonb_each_text(ir.original_data) where lower(key) in ('patient_name','full_name','name','nama','nama_pasien') limit 1),''
+      )),'[^[:alnum:]]+',' ','g')) as patient_name,
+      nullif(trim(coalesce(
+        (select value from jsonb_each_text(ir.original_data) where lower(key) in ('dob','birth_date','date_of_birth','tanggal_lahir') limit 1),''
+      )),'') as dob,
+      lower(trim(coalesce(
+        (select value from jsonb_each_text(ir.original_data) where lower(key) in ('gender','sex','jenis_kelamin') limit 1),''
+      ))) as gender,
+      lower(trim(coalesce(
+        (select value from jsonb_each_text(ir.original_data) where lower(key) in ('city','kabupaten','kota') limit 1),''
+      ))) as city
+    from public.import_rows ir
+    where ir.import_id=p_import_id and ir.tenant_id=v_tenant
+  ),
+  row_pairs as (
+    select a.*,b.id right_id,b.row_number right_row,b.nik right_nik,b.mrn right_mrn,
+      b.source_id right_source_id,b.patient_name right_name,b.dob right_dob,
+      b.gender right_gender,b.city right_city,
+      array_remove(array[
+        case when a.nik<>'' and a.nik=b.nik then 'NIK' end,
+        case when a.mrn<>'' and a.mrn=b.mrn then 'MRN' end,
+        case when a.source_id<>'' and a.source_id=b.source_id then 'SOURCE_PATIENT_ID' end
+      ],null) exact_fields,
+      extensions.similarity(a.patient_name,b.patient_name) name_score
+    from src a join src b on a.row_number < b.row_number
+  )
+  insert into public.identity_duplicate_findings(
+    tenant_id,organization_id,import_id,left_import_row_id,right_import_row_id,
+    pair_key,pair_number,pair_color,match_class,severity,matched_fields,evidence
+  )
+  select v_tenant,v_org,p_import_id,
+    rp.id,rp.right_id,
+    'rows:'||least(rp.row_number,rp.right_row)||':'||greatest(rp.row_number,rp.right_row),
+    row_number() over(order by rp.row_number,rp.right_row)::integer,
+    (array['#F04452','#A855F7','#0EA5E9','#14B8A6','#F59E0B','#EC4899','#6366F1','#84CC16'])[
+      1+((row_number() over(order by rp.row_number,rp.right_row)::integer-1)%8)
+    ],
+    case when cardinality(rp.exact_fields)>0 and (
+      (rp.nik<>'' and rp.right_nik<>'' and rp.nik<>rp.right_nik)
+      or (rp.patient_name<>'' and rp.right_name<>'' and rp.patient_name<>rp.right_name)
+    ) then 'identifier_conflict'
+    when cardinality(rp.exact_fields)>0 then 'exact_identifier' else 'possible_name' end,
+    case when cardinality(rp.exact_fields)>0 then 'red' else 'amber' end,
+    case when cardinality(rp.exact_fields)>0 then rp.exact_fields else array['PATIENT_NAME'] end,
+    jsonb_build_object(
+      'left_row',rp.row_number,'right_row',rp.right_row,
+      'name_similarity',round(rp.name_score::numeric,3),
+      'dob_match',case when rp.dob is not null and rp.dob=rp.right_dob then true else false end,
+      'gender_match',case when rp.gender<>'' and rp.gender=rp.right_gender then true else false end,
+      'city_match',case when rp.city<>'' and rp.city=rp.right_city then true else false end,
+      'identifier_conflict',case when rp.nik<>'' and rp.right_nik<>'' and rp.nik<>rp.right_nik then 'NIK values differ' end,
+      'name_conflict',case when rp.patient_name<>'' and rp.right_name<>'' and rp.patient_name<>rp.right_name then 'Names differ despite shared identifier' end,
+      'masked_identifier',case when cardinality(rp.exact_fields)>0 then '••••' end
+    )
+  from row_pairs rp
+  where cardinality(rp.exact_fields)>0
+     or (rp.name_score>=0.72 and rp.patient_name<>'' and rp.right_name<>'')
+  on conflict (tenant_id,import_id,pair_key) do nothing;
+
+  get diagnostics v_exact = row_count;
+
+  with src as (
+    select ir.id,ir.row_number,ir.original_data,
+      lower(regexp_replace(trim(coalesce((select value from jsonb_each_text(ir.original_data) where lower(key) in ('mrn','medical_record_number','medical_record_no','no_rm','nomor_rm') limit 1),'')),'[^[:alnum:]]','','g')) mrn,
+      lower(regexp_replace(trim(coalesce((select value from jsonb_each_text(ir.original_data) where lower(key) in ('patient_name','full_name','name','nama','nama_pasien') limit 1),'')),'[^[:alnum:]]+',' ','g')) patient_name,
+      nullif(trim(coalesce((select value from jsonb_each_text(ir.original_data) where lower(key) in ('dob','birth_date','date_of_birth','tanggal_lahir') limit 1),'')),'') dob,
+      lower(trim(coalesce((select value from jsonb_each_text(ir.original_data) where lower(key) in ('gender','sex','jenis_kelamin') limit 1),''))) gender,
+      lower(trim(coalesce((select value from jsonb_each_text(ir.original_data) where lower(key) in ('city','kabupaten','kota') limit 1),''))) city
+    from public.import_rows ir where ir.import_id=p_import_id and ir.tenant_id=v_tenant
+  ),
+  candidates as (
+    select s.*,p.id patient_id,p.local_mrn,
+      lower(regexp_replace(trim(coalesce(
+        p.name->0->>'text',
+        concat_ws(' ',p.name->0->'given'->>0,p.name->0->>'family')
+      )),'[^[:alnum:]]+',' ','g')) existing_name,
+      p.birth_date::text existing_dob,lower(coalesce(p.administrative_gender,'')) existing_gender,
+      lower(coalesce(p.addresses->0->>'city','')) existing_city
+    from src s join public.patients p
+      on p.tenant_id=v_tenant
+     and p.organization_id is not distinct from v_org
+     and ( (s.mrn<>'' and lower(regexp_replace(coalesce(p.local_mrn,''),'[^[:alnum:]]','','g'))=s.mrn)
+        or (s.patient_name<>'' and extensions.similarity(s.patient_name,
+            lower(regexp_replace(trim(coalesce(p.name->0->>'text',concat_ws(' ',p.name->0->'given'->>0,p.name->0->>'family'))),'[^[:alnum:]]+',' ','g')))>=0.72) )
+  )
+  insert into public.identity_duplicate_findings(
+    tenant_id,organization_id,import_id,left_import_row_id,candidate_patient_id,
+    pair_key,pair_number,pair_color,match_class,severity,matched_fields,evidence
+  )
+  select v_tenant,v_org,p_import_id,c.id,c.patient_id,
+    'patient:'||c.id::text||':row:'||c.row_number,
+    (select coalesce(max(pair_number),0) from public.identity_duplicate_findings f where f.tenant_id=v_tenant and f.import_id=p_import_id)
+      + row_number() over(order by c.row_number,c.patient_id)::integer,
+    (array['#F04452','#A855F7','#0EA5E9','#14B8A6','#F59E0B','#EC4899','#6366F1','#84CC16'])[
+      1+((row_number() over(order by c.row_number,c.patient_id)::integer-1)%8)
+    ],
+    case when c.mrn<>'' and lower(regexp_replace(coalesce(c.local_mrn,''),'[^[:alnum:]]','','g'))=c.mrn
+      then 'exact_identifier' else 'possible_name' end,
+    case when c.mrn<>'' and lower(regexp_replace(coalesce(c.local_mrn,''),'[^[:alnum:]]','','g'))=c.mrn
+      then 'red' else 'amber' end,
+    case when c.mrn<>'' and lower(regexp_replace(coalesce(c.local_mrn,''),'[^[:alnum:]]','','g'))=c.mrn
+      then array['MRN'] else array['PATIENT_NAME'] end,
+    jsonb_build_object(
+      'source_row',c.row_number,'candidate_patient_id',c.patient_id,
+      'candidate_name',c.existing_name,'candidate_mrn_masked',
+        case when c.local_mrn is null then null else '••••'||right(c.local_mrn,2) end,
+      'name_similarity',round(extensions.similarity(c.patient_name,c.existing_name)::numeric,3),
+      'dob_match',case when c.dob is not null and c.dob=c.existing_dob then true else false end,
+      'gender_match',case when c.gender<>'' and c.gender=c.existing_gender then true else false end,
+      'city_match',case when c.city<>'' and c.city=c.existing_city then true else false end
+    )
+  from candidates c
+  on conflict (tenant_id,import_id,pair_key) do nothing;
+
+  select count(*)::integer,
+    count(*) filter(where match_class in ('exact_identifier','identifier_conflict'))::integer,
+    count(*) filter(where match_class='possible_name')::integer
+  into v_count,v_exact,v_names
+  from public.identity_duplicate_findings
+  where tenant_id=v_tenant and import_id=p_import_id;
+
+  return query select v_count,v_exact,v_names;
+end;
+$function$
+
 
 commit;
