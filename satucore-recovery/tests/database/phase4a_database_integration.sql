@@ -200,7 +200,12 @@ update public.import_rows
    set original_data = '{"name":"After"}'
  where id = '20000000-0000-0000-0000-000000000001';
 
-do $$
+select auth.uid() as source_change_actor,
+       id, status, validation_report_id, validated_at, updated_by
+  from public.patient_drafts
+ where id = '40000000-0000-0000-0000-000000000001';
+
+do $
 begin
   if not exists (
     select 1 from public.patient_drafts
