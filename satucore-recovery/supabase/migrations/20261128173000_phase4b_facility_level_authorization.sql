@@ -136,6 +136,8 @@ begin
 
   if p_table_name = 'tenant_members' then
     return coalesce((p_row->>'user_id')::uuid = auth.uid(), false);
+  elsif p_table_name = 'organizations' then
+    v_org_id := nullif(p_row->>'id','')::uuid;
   elsif p_table_name = 'audit_logs' then
     v_org_id := nullif(p_row->'metadata'->>'organization_id','')::uuid;
     return private.can_access_organization(p_tenant_id, v_org_id);
