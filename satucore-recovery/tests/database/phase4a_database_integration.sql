@@ -8,7 +8,7 @@
 create schema auth;
 create schema private;
 
-do $$
+do $phase4a$
 begin
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then
     create role authenticated nologin;
@@ -20,16 +20,16 @@ begin
     create role service_role nologin;
   end if;
 end;
-$$;
+$phase4a$;
 
 create or replace function auth.uid()
 returns uuid
 language sql
 stable
 set search_path = ''
-as $$
+as $phase4a$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
-$$;
+$phase4a$;
 
 create table public.tenant_members (
   tenant_id uuid not null,
@@ -44,7 +44,7 @@ language sql
 stable
 security definer
 set search_path = ''
-as $$
+as $phase4a$
   select exists (
     select 1
       from public.tenant_members tm
@@ -53,7 +53,7 @@ as $$
        and tm.status = 'active'
        and tm.role = any(p_roles)
   );
-$$;
+$phase4a$;
 
 create table public.fhir_resources (
   id uuid primary key default gen_random_uuid(),
@@ -107,7 +107,7 @@ values
 -- A submitter cannot approve, even when they created the FHIR resource.
 set role authenticated;
 set request.jwt.claim.sub = '10000000-0000-0000-0000-000000000001';
-do $$
+do $phase4a$
 begin
   begin
     insert into public.submission_approvals(tenant_id, fhir_resource_id, decision, approved_by)
@@ -117,7 +117,7 @@ begin
     null;
   end;
 end;
-$$;
+$phase4a$;
 reset role;
 reset request.jwt.claim.sub;
 
@@ -129,7 +129,7 @@ values ('00000000-0000-0000-0000-000000000001','50000000-0000-0000-0000-00000000
 reset role;
 reset request.jwt.claim.sub;
 
-do $$
+do $phase4a$
 begin
   if not exists (
     select 1 from public.submission_approvals
@@ -139,12 +139,12 @@ begin
     raise exception 'ASSERTION FAILED: reviewer approval did not bind the stored payload hash';
   end if;
 end;
-$$;
+$phase4a$;
 
 -- A reviewer cannot approve their own FHIR resource.
 set role authenticated;
 set request.jwt.claim.sub = '10000000-0000-0000-0000-000000000002';
-do $$
+do $phase4a$
 begin
   begin
     insert into public.submission_approvals(tenant_id, fhir_resource_id, decision, approved_by)
@@ -154,7 +154,7 @@ begin
     null;
   end;
 end;
-$$;
+$phase4a$;
 reset role;
 reset request.jwt.claim.sub;
 
@@ -239,6 +239,9 @@ grant select, insert, update on public.data_imports, public.import_rows,
 \ir ../../supabase/migrations/20261128171000_phase4a_enforce_validated_patient_draft.sql
 \ir ../../supabase/migrations/20261128172000_phase4a_invalidate_patient_drafts_on_input_change.sql
 
+insert into public.data_imports(id, tenant_id, organization_id, source_system_id)
+values ('30000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000001','90000000-0000-0000-0000-000000000001');
+
 insert into public.import_rows(id, tenant_id, import_id, row_number, original_data)
 values
   ('20000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001',1,'{"name":"Before"}'),
@@ -265,7 +268,7 @@ select auth.uid() as source_change_actor,
   from public.patient_drafts
  where id = '40000000-0000-0000-0000-000000000001';
 
-do $
+do $phase4a$
 begin
   if not exists (
     select 1 from public.patient_drafts
@@ -291,7 +294,7 @@ begin
     raise exception 'ASSERTION FAILED: source-row update crossed tenant boundaries';
   end if;
 end;
-$$;
+$phase4a$;
 
 -- Re-establish a validated fixture, then change the Patient mapping.
 update public.patient_drafts
@@ -304,7 +307,7 @@ update public.field_mappings
    set target_field = 'birthDate'
  where id = '70000000-0000-0000-0000-000000000001';
 
-do $$
+do $phase4a$
 begin
   if not exists (
     select 1 from public.patient_drafts
@@ -323,7 +326,7 @@ begin
     raise exception 'ASSERTION FAILED: Patient mapping update crossed tenant/import boundaries';
   end if;
 end;
-$;
+$phase4a$;
 
 -- A non-Patient mapping must not invalidate Patient drafts.
 update public.patient_drafts
@@ -335,7 +338,7 @@ update public.patient_drafts
 insert into public.field_mappings(id, tenant_id, import_id, target_resource, target_field, status)
 values ('70000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','Observation','status','approved');
 
-do $$
+do $phase4a$
 begin
   if not exists (
     select 1 from public.patient_drafts
@@ -345,19 +348,19 @@ begin
     raise exception 'ASSERTION FAILED: non-Patient mapping change invalidated a Patient draft';
   end if;
 end;
-$$;
+$phase4a$;
 
 -- Adding or removing a Patient mapping also invalidates the import's drafts.
 insert into public.field_mappings(id, tenant_id, import_id, target_resource, target_field, status)
 values ('70000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','Patient','gender','approved');
 
-do $$
+do $phase4a$
 begin
   if not exists (select 1 from public.patient_drafts where id = '40000000-0000-0000-0000-000000000001' and status = 'stale') then
     raise exception 'ASSERTION FAILED: inserting a Patient mapping did not invalidate the draft';
   end if;
 end;
-$$;
+$phase4a$;
 
 update public.patient_drafts
    set status = 'validated',
@@ -368,20 +371,20 @@ update public.patient_drafts
 delete from public.field_mappings
  where id = '70000000-0000-0000-0000-000000000004';
 
-do $$
+do $phase4a$
 begin
   if not exists (select 1 from public.patient_drafts where id = '40000000-0000-0000-0000-000000000001' and status = 'stale') then
     raise exception 'ASSERTION FAILED: deleting a Patient mapping did not invalidate the draft';
   end if;
 end;
-$$;
+$phase4a$;
 
 reset request.jwt.claim.sub;
 
 -- The Patient creation RPC must reject stale drafts before any canonical write.
 set role authenticated;
 set request.jwt.claim.sub = '10000000-0000-0000-0000-000000000003';
-do $
+do $phase4a$
 begin
   begin
     perform public.create_patient_from_validated_import(
@@ -451,7 +454,7 @@ begin
     end if;
   end;
 end;
-$;
+$phase4a$;
 reset role;
 reset request.jwt.claim.sub;
 
