@@ -16,6 +16,9 @@ begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then
     create role anon nologin;
   end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    create role service_role nologin;
+  end if;
 end;
 $$;
 
@@ -53,10 +56,17 @@ as $$
 $$;
 
 create table public.fhir_resources (
-  id uuid primary key,
+  id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null,
   payload_hash text,
-  created_by uuid
+  created_by uuid,
+  patient_id uuid,
+  resource_type text,
+  fhir_version text,
+  profile_urls text[],
+  payload jsonb,
+  status text,
+  source_record_reference text
 );
 
 create table public.submission_approvals (
@@ -154,9 +164,17 @@ create table public.patient_drafts (
   tenant_id uuid not null,
   import_id uuid not null,
   import_row_id uuid not null,
+  row_number integer not null default 1,
+  revision integer not null default 1,
   status text not null,
+  canonical_patient jsonb not null default '{}'::jsonb,
+  fhir_patient jsonb not null default '{"resourceType":"Patient"}'::jsonb,
+  mapping_snapshot jsonb not null default '[]'::jsonb,
+  payload_hash text not null default repeat('a',64),
+  input_hash text not null default repeat('b',64),
   validation_report_id uuid,
   validated_at timestamptz,
+  created_by uuid not null default '10000000-0000-0000-0000-000000000001',
   updated_by uuid not null
 );
 
@@ -165,7 +183,11 @@ create table public.import_rows (
   tenant_id uuid not null,
   import_id uuid not null,
   row_number integer not null,
-  original_data jsonb not null
+  source_record_key text,
+  original_data jsonb not null,
+  normalized_data jsonb,
+  processing_status text not null default 'profiled',
+  issues jsonb not null default '[]'::jsonb
 );
 
 create table public.field_mappings (
@@ -177,6 +199,44 @@ create table public.field_mappings (
   status text not null
 );
 
+create table public.data_imports (
+  id uuid primary key,
+  tenant_id uuid not null,
+  organization_id uuid not null,
+  source_system_id uuid
+);
+
+create table public.patient_draft_validation_reports (
+  id uuid primary key,
+  tenant_id uuid not null,
+  import_id uuid not null,
+  import_row_id uuid not null,
+  row_number integer not null,
+  validator text not null,
+  validator_version text not null,
+  conformance_scope text not null,
+  outcome text not null,
+  issues jsonb not null,
+  payload_hash text not null,
+  input_hash text not null,
+  approved_mappings jsonb not null,
+  created_by uuid not null
+);
+
+create table public.patient_identity_review_requests (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null,
+  import_id uuid not null,
+  import_row_id uuid not null,
+  decision text not null
+);
+
+grant usage on schema public to authenticated;
+grant select, insert, update on public.data_imports, public.import_rows,
+  public.patient_drafts, public.patient_draft_validation_reports,
+  public.patient_identity_review_requests to authenticated;
+
+\ir ../../supabase/migrations/20261128171000_phase4a_enforce_validated_patient_draft.sql
 \ir ../../supabase/migrations/20261128172000_phase4a_invalidate_patient_drafts_on_input_change.sql
 
 insert into public.import_rows(id, tenant_id, import_id, row_number, original_data)
@@ -317,4 +377,82 @@ end;
 $$;
 
 reset request.jwt.claim.sub;
+
+-- The Patient creation RPC must reject stale drafts before any canonical write.
+set role authenticated;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-000000000003';
+do $
+begin
+  begin
+    perform public.create_patient_from_validated_import(
+      '00000000-0000-0000-0000-000000000001',
+      '80000000-0000-0000-0000-000000000001',
+      '30000000-0000-0000-0000-000000000001',
+      '20000000-0000-0000-0000-000000000001',
+      '60000000-0000-0000-0000-000000000001',
+      '{"active":true,"name":[],"source_identifiers":[]}'::jsonb,
+      '{"resourceType":"Patient"}'::jsonb,
+      '[]'::jsonb,
+      repeat('a',64)
+    );
+    raise exception 'ASSERTION FAILED: stale Patient Draft unexpectedly passed the creation gate';
+  exception when others then
+    if sqlerrm = 'ASSERTION FAILED: stale Patient Draft unexpectedly passed the creation gate' then
+      raise;
+    end if;
+    if sqlerrm not like '%Patient Draft is not currently validated%' then
+      raise;
+    end if;
+  end;
+
+  -- Organization must be bound to the import, not caller-substituted.
+  begin
+    perform public.create_patient_from_validated_import(
+      '00000000-0000-0000-0000-000000000001',
+      '80000000-0000-0000-0000-000000000002',
+      '30000000-0000-0000-0000-000000000001',
+      '20000000-0000-0000-0000-000000000001',
+      '60000000-0000-0000-0000-000000000001',
+      '{"active":true,"name":[],"source_identifiers":[]}'::jsonb,
+      '{"resourceType":"Patient"}'::jsonb,
+      '[]'::jsonb,
+      repeat('a',64)
+    );
+    raise exception 'ASSERTION FAILED: caller-substituted Organization unexpectedly passed';
+  exception when others then
+    if sqlerrm = 'ASSERTION FAILED: caller-substituted Organization unexpectedly passed' then
+      raise;
+    end if;
+    if sqlerrm not like '%Import does not belong to this tenant and Organization%' then
+      raise;
+    end if;
+  end;
+
+  -- A tenant administrator in tenant A cannot create a Patient in tenant B.
+  begin
+    perform public.create_patient_from_validated_import(
+      '00000000-0000-0000-0000-000000000002',
+      '80000000-0000-0000-0000-000000000002',
+      '30000000-0000-0000-0000-000000000001',
+      '20000000-0000-0000-0000-000000000001',
+      '60000000-0000-0000-0000-000000000001',
+      '{"active":true,"name":[],"source_identifiers":[]}'::jsonb,
+      '{"resourceType":"Patient"}'::jsonb,
+      '[]'::jsonb,
+      repeat('a',64)
+    );
+    raise exception 'ASSERTION FAILED: cross-tenant Patient creation unexpectedly passed';
+  exception when others then
+    if sqlerrm = 'ASSERTION FAILED: cross-tenant Patient creation unexpectedly passed' then
+      raise;
+    end if;
+    if sqlerrm not like '%Not authorized for this clinic%' then
+      raise;
+    end if;
+  end;
+end;
+$;
+reset role;
+reset request.jwt.claim.sub;
+
 select 'Phase 4A PostgreSQL integration checks passed' as result;
