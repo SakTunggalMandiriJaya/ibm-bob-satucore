@@ -3,14 +3,28 @@ name: SATUCORE recovery application checks
 on:
   push:
     branches:
-      - "feature/transaction-monitor-2026-11-28"
+      - "feature/phase4a-maker-checker-hardening-2026-11-28"
   pull_request:
     branches:
-      - "feature/transaction-monitor-2026-11-28"
+      - "recovery/patient-scan-baseline-2026-11-26"
 
 jobs:
   app-checks:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: satucore_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d satucore_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: satucore-recovery
@@ -24,3 +38,22 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Run Phase 4A PostgreSQL integration checks
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: satucore_test
+        run: psql -v ON_ERROR_STOP=1 -f tests/database/phase4a_database_integration.sql
+      - name: Run Phase 4B PostgreSQL facility authorization integration checks
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          createdb satucore_phase4b_test
+          PGDATABASE=satucore_phase4b_test psql -v ON_ERROR_STOP=1 -f tests/database/phase4b_facility_authorization_integration.sql

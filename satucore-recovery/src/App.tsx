@@ -25,6 +25,7 @@ import type { Workspace, PatientDraftRecord } from "./lib/workflow";
 import { PatientCorrectionReviewQueue } from "./components/PatientCorrectionReviewQueue";
 import { PatientIdentityReviewQueue } from "./components/PatientIdentityReviewQueue";
 import { TransactionMonitor } from "./components/TransactionMonitor";
+import { FacilityAccessManagement } from "./components/FacilityAccessManagement";
 import {
   Activity,
   ArrowRight,
@@ -489,7 +490,7 @@ function App() {
       if (!alive || !data.session) return;
       try {
         const w = await getWorkspace(data.session);
-        const restored = await restoreLatestImport(w);
+        const restored = w.organizationId ? await restoreLatestImport(w) : null;
         if (alive) {
           setSession(data.session);
           setWorkspace(w);
@@ -683,12 +684,17 @@ function App() {
       );
       return;
     }
+    if (!workspace.organizationId) {
+      setNotice("Select an authorized facility before using the KFA catalogue.");
+      return;
+    }
     try {
       setKfaBusy(true);
       const { data, error } = await supabase.functions.invoke("kfa-catalogue", {
         body: {
           action,
           tenant_id: workspace.tenantId,
+          organization_id: workspace.organizationId,
           page: 1,
           size: 50,
           product_type: "farmasi",
@@ -722,7 +728,13 @@ function App() {
       setPersisting(true);
       const { data, error } = await supabase.functions.invoke(
         "satusehat-connectivity-test",
-        { body: { action: "preflight", tenant_id: workspace?.tenantId } },
+        {
+          body: {
+            action: "preflight",
+            tenant_id: workspace.tenantId,
+            organization_id: workspace.organizationId
+          }
+        },
       );
       if (error) throw error;
       setSandboxResult(data);
@@ -1612,6 +1624,7 @@ const issues = useMemo(
     ["FHIR & validation", ClipboardCheck],
     ["Transactions", Activity],
     ["Audit trail", ShieldCheck],
+    ...(workspace?.role === "tenant_admin" ? [["Facility access", Users] as const] : []),
     ["Settings", Settings],
   ];
   const go = (p: string) => {
@@ -1939,7 +1952,52 @@ const issues = useMemo(
               </button>
             </div>
           )}
-          {page === "Overview" ? (
+          {workspace?.availableOrganizations?.length ? (
+            <>
+              <PageTitle eyebrow="FACILITY SELECTION" title="Choose your facility" desc="Your account has access to multiple facilities. Select the Organization for this working session before accessing clinical data." />
+              <div className="panel settings-panel">
+                {workspace.availableOrganizations.map((organization) => (
+                  <div className="settings-line" key={organization.id}>
+                    <span><b>{organization.name}</b><small>Authorized facility · {organization.id}</small></span>
+                    <button className="primary-btn" onClick={async () => {
+                      const selectedWorkspace = { ...workspace, organizationId: organization.id, organizationName: organization.name, availableOrganizations: undefined };
+                      setWorkspace(selectedWorkspace);
+                      setTenant(organization.name);
+                      setNotice("Facility selected: " + organization.name + ". Loading only this facility's latest import.");
+                      try {
+                        const restored = await restoreLatestImport(selectedWorkspace);
+                        if (restored) {
+                          setIsDemoMode(false);
+                          setImportId(restored.importId);
+                          setFilename(restored.filename);
+                          setRows(restored.rows);
+                          setFields(restored.fields);
+                          setApproved(restored.fields.length > 0 && restored.fields.every(f => f.approved));
+                          setActive(restored.fields.length ? "MAP" : "SCAN");
+                          setPage(restored.fields.length && restored.fields.every(f => f.approved) ? "FHIR & validation" : "MAP");
+                          setNotice("Facility selected. Its latest import and mapping decisions have been restored.");
+                        } else {
+                          setImportId(null);
+                          setRows([]);
+                          setFields([]);
+                          setPage("Overview");
+                          setNotice("Facility selected: " + organization.name + ". No prior import exists for this facility.");
+                        }
+                      } catch (error) {
+                        setNotice("Facility selected, but its previous import could not be restored: " + getReadableError(error));
+                      }
+                    }}>Open facility <ArrowRight size={15}/></button>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : workspace && !workspace.organizationId ? (
+            <div className="empty-state">
+              <div className="empty-icon"><ShieldCheck size={28}/></div>
+              <h3>No facility access assigned</h3>
+              <p>Your tenant membership is active, but no Organization has been assigned to your account. Ask your tenant administrator to grant access. No clinical facility data is available in this session.</p>
+            </div>
+          ) : page === "Overview" ? (
             <>
               <div className="welcome-row">
                 <div>
@@ -3325,6 +3383,14 @@ const issues = useMemo(
                 </span>
               </div>
             </>
+          ) : page === "Facility access" ? (
+            workspace ? <FacilityAccessManagement workspace={workspace} /> : (
+              <div className="empty-state">
+                <div className="empty-icon"><ShieldCheck size={28} /></div>
+                <h3>Tenant administrator workspace required</h3>
+                <p>Sign in with an active tenant administrator account to manage facility assignments. Ordinary users cannot assign access.</p>
+              </div>
+            )
           ) : page === "Patient records" ? (
             <>
               <PageTitle

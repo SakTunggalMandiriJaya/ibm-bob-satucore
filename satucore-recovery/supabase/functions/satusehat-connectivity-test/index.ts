@@ -5,6 +5,7 @@ import {
   ACTIONS,
   canRunAction,
   isActiveMembershipForTenant,
+  isAuthorizedForOrganization,
   isKnownAction,
   isPermittedIdentifierSystem,
   summarizePatientResponse
@@ -144,11 +145,23 @@ Deno.serve(async (req: Request) => {
   const input = await req.json().catch(() => ({}));
 
   const tenantId = String(input.tenant_id ?? "").trim();
+  const organizationId = String(input.organization_id ?? "").trim();
   const action = String(input.action ?? ACTIONS.PREFLIGHT).trim();
 
   if (!tenantId) {
     return json(
       { success: false, error: "tenant_id is required." },
+      400
+    );
+  }
+
+  if (!organizationId) {
+    return json(
+      {
+        success: false,
+        stage: "authorization",
+        error: "Select an Organization before running a facility-specific SATUSEHAT operation."
+      },
       400
     );
   }
@@ -331,6 +344,7 @@ Deno.serve(async (req: Request) => {
         "id,tenant_id,organization_id,environment,client_id_reference,client_secret_reference,connection_status"
       )
       .eq("tenant_id", tenantId)
+      .eq("organization_id", organizationId)
       .eq("environment", "sandbox");
 
   if (connectionError) {
@@ -353,7 +367,7 @@ Deno.serve(async (req: Request) => {
         success: false,
         action,
         stage: "configuration",
-        error: "No Sandbox connection is configured for this tenant."
+        error: "No Sandbox connection is configured for the selected facility."
       },
       409,
       "failed",
@@ -367,7 +381,7 @@ Deno.serve(async (req: Request) => {
         success: false,
         action,
         stage: "configuration",
-        error: "Multiple Sandbox connections found. Select a facility connection before testing."
+        error: "Multiple Sandbox connections found for the selected facility. Resolve the duplicate connection configuration before testing."
       },
       409,
       "failed",
@@ -402,6 +416,50 @@ Deno.serve(async (req: Request) => {
       { stage: "configuration" },
       connection.id
     );
+  }
+
+  // Tenant membership alone is not sufficient for a facility-specific
+  // SATUSEHAT connection. Tenant administrators retain tenant-wide access;
+  // every other caller must have an active assignment to this exact facility.
+  if (membership.role !== "tenant_admin") {
+    const { data: assignment, error: assignmentError } = await admin
+      .from("organization_members")
+      .select("organization_id,status")
+      .eq("tenant_id", tenantId)
+      .eq("organization_id", organization.id)
+      .eq("user_id", auth.user.id)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (assignmentError) {
+      return auditedResponse(
+        {
+          success: false,
+          action,
+          stage: "authorization",
+          error: "Could not verify facility assignment."
+        },
+        500,
+        "failed",
+        { reason: "facility_assignment_lookup_failed" },
+        connection.id
+      );
+    }
+
+    if (!isAuthorizedForOrganization(membership.role, assignment)) {
+      return auditedResponse(
+        {
+          success: false,
+          action,
+          stage: "authorization",
+          error: "Active assignment to this facility is required for this SATUSEHAT operation."
+        },
+        403,
+        "denied",
+        { reason: "facility_assignment_required" },
+        connection.id
+      );
+    }
   }
 
   const clientId = Deno.env.get(

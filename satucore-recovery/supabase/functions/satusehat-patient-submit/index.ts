@@ -51,6 +51,12 @@ Deno.serve(async (req) => {
   if (!member || member.status!=="active" || !["tenant_admin","clinic_admin","data_manager","submitter"].includes(member.role)) return reply({success:false,stage:"authorization",error:"Active authorized tenant membership required"},403);
   const {data:resource,error:resourceErr}=await admin.from("fhir_resources").select("id,tenant_id,patient_id,resource_type,resource_id,fhir_version,profile_urls,payload,payload_hash,status").eq("id",resourceId).eq("tenant_id",tenantId).maybeSingle();
   if (resourceErr || !resource) return reply({success:false,stage:"resource",error:"FHIR resource not found in this tenant"},404);
+  const {data:patient,error:patientErr}=await admin.from("patients").select("id,tenant_id,organization_id").eq("id",resource.patient_id).eq("tenant_id",tenantId).maybeSingle();
+  if (patientErr || !patient?.organization_id) return reply({success:false,stage:"facility_scope",error:"Patient facility ownership could not be verified"},409);
+  if (member.role!=="tenant_admin") {
+    const {data:assignment,error:assignmentErr}=await admin.from("organization_members").select("id").eq("tenant_id",tenantId).eq("organization_id",patient.organization_id).eq("user_id",user.id).eq("status","active").maybeSingle();
+    if (assignmentErr || !assignment) return reply({success:false,stage:"authorization",error:"User is not assigned to the Patient's facility"},403);
+  }
   if (resource.resource_type!=="Patient" || resource.payload?.resourceType!=="Patient" || resource.fhir_version!=="4.0.1" || resource.status!=="approved") return reply({success:false,stage:"resource",error:"Only FHIR R4 Patient resources can be submitted by this endpoint"},409);
   const actualHash=String(resource.payload_hash??"");
   if (!/^[0-9a-f]{64}$/.test(actualHash)) return reply({success:false,stage:"integrity",error:"Stored FHIR payload hash is invalid"},409);
@@ -60,10 +66,15 @@ Deno.serve(async (req) => {
   if (approvalErr || !approval) return reply({success:false,stage:"approval",error:"Exact-resource submission approval not found"},404);
   if (approval.decision!=="approved" || !approval.approved_by || approval.approved_payload_hash!==actualHash) return reply({success:false,stage:"approval",error:"Submission approval is missing, revoked, or does not match the exact FHIR payload"},409);
   const {data:approver}=await admin.from("tenant_members").select("role,status").eq("tenant_id",tenantId).eq("user_id",approval.approved_by).maybeSingle();
-  if (!approver || approver.status!=="active" || !["tenant_admin","clinic_admin","reviewer","submitter"].includes(approver.role)) return reply({success:false,stage:"approval",error:"Approver is no longer an active authorized tenant member"},403);
-  const {data:connections,error:connErr}=await admin.from("satusehat_connections").select("id,tenant_id,organization_id,environment,client_id_reference,client_secret_reference,token_url,api_base_url,connection_status,authorization_scope").eq("tenant_id",tenantId).eq("environment","sandbox");
+  if (!approver || approver.status!=="active" || !["tenant_admin","clinic_admin","reviewer"].includes(approver.role)) return reply({success:false,stage:"approval",error:"Approver is no longer an active authorized tenant member"},403);
+  if (approver.role!=="tenant_admin") {
+    const {data:approverAssignment,error:approverAssignmentErr}=await admin.from("organization_members").select("id").eq("tenant_id",tenantId).eq("organization_id",patient.organization_id).eq("user_id",approval.approved_by).eq("status","active").maybeSingle();
+    if (approverAssignmentErr || !approverAssignment) return reply({success:false,stage:"approval",error:"Approver is not assigned to the Patient's facility"},403);
+  }
+  const {data:connections,error:connErr}=await admin.from("satusehat_connections").select("id,tenant_id,organization_id,environment,client_id_reference,client_secret_reference,token_url,api_base_url,connection_status,authorization_scope").eq("tenant_id",tenantId).eq("organization_id",patient.organization_id).eq("environment","sandbox");
   if (connErr || !connections || connections.length!==1) return reply({success:false,stage:"configuration",error:"Exactly one tenant Sandbox connection is required"},409);
   const connection=connections[0];
+  if (connection.organization_id!==patient.organization_id) return reply({success:false,stage:"facility_scope",error:"Sandbox connection Organization does not match the Patient's owning facility"},409);
   const {data:org,error:orgErr}=await admin.from("organizations").select("id,tenant_id,satusehat_organization_id,active").eq("id",connection.organization_id).eq("tenant_id",tenantId).maybeSingle();
   if (orgErr || !org?.active || !org.satusehat_organization_id) return reply({success:false,stage:"facility_scope",error:"Active facility and SATUSEHAT Organization ID are required"},409);
   if (connection.connection_status!=="tested") return reply({success:false,stage:"connection_preflight",error:"Run and pass the Sandbox connectivity preflight before Patient submission"},409);

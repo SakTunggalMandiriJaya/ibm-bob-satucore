@@ -8,7 +8,7 @@ export type SourceRow = Record<string, string>
 
 export type Mapping = { source: string; target: string; confidence: number; approved: boolean }
 
-export type Workspace = { tenantId: string; tenantName: string; role: string; organizationId: string | null; organizationName: string | null; userId: string }
+export type Workspace = { tenantId: string; tenantName: string; role: string; organizationId: string | null; organizationName: string | null; userId: string; availableOrganizations?: { id: string; name: string }[] }
 
 
 
@@ -56,13 +56,57 @@ export async function getWorkspace(session: Session): Promise<Workspace> {
 
   const membership: any = memberships[0]
 
-  const { data: orgs, error: orgError } = await db.from('organizations')
+  // Facility-level access is explicit for ordinary users. Tenant administrators
+  // may see all active Organizations; other roles must have an active assignment.
+  let orgs: { id: string; name: string }[] | null = null
+  let orgError: { message: string } | null = null
 
-    .select('id,name').eq('tenant_id', membership.tenant_id).eq('active', true).order('created_at')
+  if (membership.role === 'tenant_admin') {
+    const result = await db.from('organizations')
+      .select('id,name').eq('tenant_id', membership.tenant_id).eq('active', true).order('created_at')
+    orgs = result.data
+    orgError = result.error
+  } else {
+    const { data: assignments, error: assignmentError } = await db.from('organization_members')
+      .select('organization_id')
+      .eq('tenant_id', membership.tenant_id)
+      .eq('user_id', session.user.id)
+      .eq('status', 'active')
+    if (assignmentError) throw assignmentError
+
+    const assignedIds = (assignments ?? []).map((item: { organization_id: string }) => item.organization_id)
+    if (!assignedIds.length) {
+      return {
+        tenantId: membership.tenant_id,
+        tenantName: membership.tenants?.name ?? 'Clinic workspace',
+        role: membership.role,
+        organizationId: null,
+        organizationName: null,
+        userId: session.user.id
+      }
+    }
+
+    const result = await db.from('organizations')
+      .select('id,name')
+      .eq('tenant_id', membership.tenant_id)
+      .eq('active', true)
+      .in('id', assignedIds)
+      .order('created_at')
+    orgs = result.data
+    orgError = result.error
+  }
 
   if (orgError) throw orgError
 
-  if ((orgs ?? []).length > 1) throw new Error('This clinic has multiple active Organizations. Select the facility explicitly before importing or submitting data.')
+  if ((orgs ?? []).length > 1) return {
+    tenantId: membership.tenant_id,
+    tenantName: membership.tenants?.name ?? 'Clinic workspace',
+    role: membership.role,
+    organizationId: null,
+    organizationName: null,
+    userId: session.user.id,
+    availableOrganizations: orgs ?? []
+  }
 
   return {
 
@@ -136,13 +180,17 @@ export async function persistImport(args: {
 
     const path = `${w.tenantId}/${importId}/${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
 
-    const { error: storageError } = await db.storage.from('legacy-imports').upload(path, file, { upsert: false, contentType: 'text/csv' })
+    // Persist the authoritative import-to-object relationship before Storage INSERT.
+    // The restrictive Storage policy resolves Organization ownership through this row.
+    const { error: pathError } = await db.from('data_imports')
+      .update({ storage_path: path, status: 'profiling' })
+      .eq('id', importId)
+      .eq('tenant_id', w.tenantId)
+    if (pathError) throw pathError
 
+    const { error: storageError } = await db.storage.from('legacy-imports')
+      .upload(path, file, { upsert: false, contentType: 'text/csv' })
     if (storageError) throw storageError
-
-    const { error: updateError } = await db.from('data_imports').update({ storage_path: path, status: 'profiling' }).eq('id', importId).eq('tenant_id', w.tenantId)
-
-    if (updateError) throw updateError
 
 
 
