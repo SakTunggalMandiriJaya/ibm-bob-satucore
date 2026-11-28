@@ -80,8 +80,8 @@ create table public.audit_logs(
   action text, entity_type text, entity_id text, outcome text, metadata jsonb
 );
 create table public.patient_identity_review_requests(
-  id uuid primary key default gen_random_uuid(), tenant_id uuid not null, import_id uuid,
-  import_row_id uuid, decision text
+  id uuid primary key default gen_random_uuid(), tenant_id uuid not null, organization_id uuid,
+  import_id uuid, import_row_id uuid, decision text, attempt_number integer default 1
 );
 create table public.submission_approvals(
   id uuid primary key default gen_random_uuid(), tenant_id uuid not null, fhir_resource_id uuid,
@@ -245,6 +245,38 @@ do $assert$
 begin
   if (select count(*) from public.organizations) <> 1 then raise exception 'cross-tenant Organization isolation failed'; end if;
   if (select count(*) from public.patients) <> 1 then raise exception 'cross-tenant Patient isolation failed'; end if;
+end;
+$assert$;
+reset role;
+reset request.jwt.claim.sub;
+
+-- SECURITY DEFINER identity RPCs must independently enforce facility scope.
+-- The caller is assigned to Facilities A and B, but not Facility C.
+insert into public.patient_identity_review_requests(id,tenant_id,organization_id,import_id,import_row_id,decision)
+values ('72000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000001',
+        '80000000-0000-0000-0000-000000000004','70000000-0000-0000-0000-000000000004',null,'pending');
+set role authenticated;
+set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';
+do $assert$
+begin
+  begin
+    perform * from public.create_patient_identity_review_request(
+      '00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000004',
+      '70000000-0000-0000-0000-000000000004',1,'SYNTHETIC-MRN','Facility authorization test denial');
+    raise exception 'identity review request RPC allowed an unassigned facility';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.decide_patient_identity_review(
+      '72000000-0000-0000-0000-000000000004','reject',null,'Facility authorization test');
+    raise exception 'identity review decision RPC allowed an unassigned facility';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform * from public.scan_import_patient_duplicates('70000000-0000-0000-0000-000000000004');
+    raise exception 'duplicate scan RPC allowed an unassigned facility';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $assert$;
 reset role;
