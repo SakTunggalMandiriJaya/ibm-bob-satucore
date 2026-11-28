@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
     const {data:approverAssignment,error:approverAssignmentErr}=await admin.from("organization_members").select("id").eq("tenant_id",tenantId).eq("organization_id",patient.organization_id).eq("user_id",approval.approved_by).eq("status","active").maybeSingle();
     if (approverAssignmentErr || !approverAssignment) return reply({success:false,stage:"approval",error:"Approver is not assigned to the Patient's facility"},403);
   }
-  const {data:connections,error:connErr}=await admin.from("satusehat_connections").select("id,tenant_id,organization_id,environment,client_id_reference,client_secret_reference,token_url,api_base_url,connection_status,authorization_scope").eq("tenant_id",tenantId).eq("environment","sandbox");
+  const {data:connections,error:connErr}=await admin.from("satusehat_connections").select("id,tenant_id,organization_id,environment,client_id_reference,client_secret_reference,token_url,api_base_url,connection_status,authorization_scope").eq("tenant_id",tenantId).eq("organization_id",patient.organization_id).eq("environment","sandbox");
   if (connErr || !connections || connections.length!==1) return reply({success:false,stage:"configuration",error:"Exactly one tenant Sandbox connection is required"},409);
   const connection=connections[0];
   if (connection.organization_id!==patient.organization_id) return reply({success:false,stage:"facility_scope",error:"Sandbox connection Organization does not match the Patient's owning facility"},409);
