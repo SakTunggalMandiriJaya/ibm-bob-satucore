@@ -214,7 +214,11 @@ $assert$;
 reset role;
 reset request.jwt.claim.sub;
 
--- Assert the exact authorization inputs before exercising Storage RLS.
+-- Assert the exact authorization inputs under the assigned authenticated user's
+-- role. Running this as the migration owner/superuser would bypass RLS and make
+-- the data_imports visibility assertion meaningless.
+set role authenticated;
+set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';
 do $assert$
 begin
   if private.can_access_organization('00000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000004') then
@@ -225,6 +229,8 @@ begin
   end if;
 end;
 $assert$;
+reset role;
+reset request.jwt.claim.sub;
 
 -- Legacy object INSERT is permitted only when the pre-created import row proves facility ownership.
 -- Run as the assigned authenticated user; a superuser bypasses RLS and invalidates this check.
