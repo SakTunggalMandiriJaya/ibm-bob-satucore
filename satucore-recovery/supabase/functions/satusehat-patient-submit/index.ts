@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
   if (approvalErr || !approval) return reply({success:false,stage:"approval",error:"Exact-resource submission approval not found"},404);
   if (approval.decision!=="approved" || !approval.approved_by || approval.approved_payload_hash!==actualHash) return reply({success:false,stage:"approval",error:"Submission approval is missing, revoked, or does not match the exact FHIR payload"},409);
   const {data:approver}=await admin.from("tenant_members").select("role,status").eq("tenant_id",tenantId).eq("user_id",approval.approved_by).maybeSingle();
-  if (!approver || approver.status!=="active" || !["tenant_admin","clinic_admin","reviewer","submitter"].includes(approver.role)) return reply({success:false,stage:"approval",error:"Approver is no longer an active authorized tenant member"},403);
+  if (!approver || approver.status!=="active" || !["tenant_admin","clinic_admin","reviewer"].includes(approver.role)) return reply({success:false,stage:"approval",error:"Approver is no longer an active authorized tenant member"},403);
   const {data:connections,error:connErr}=await admin.from("satusehat_connections").select("id,tenant_id,organization_id,environment,client_id_reference,client_secret_reference,token_url,api_base_url,connection_status,authorization_scope").eq("tenant_id",tenantId).eq("environment","sandbox");
   if (connErr || !connections || connections.length!==1) return reply({success:false,stage:"configuration",error:"Exactly one tenant Sandbox connection is required"},409);
   const connection=connections[0];
