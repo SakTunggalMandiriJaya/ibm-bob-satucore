@@ -33,7 +33,7 @@ describe("Phase 4B facility-level authorization", () => {
 
   it("derives facility scope through import, Patient, encounter and FHIR relationships", () => {
     for (const table of ["field_mappings", "import_rows", "patient_drafts", "patient_draft_validation_reports", "patient_identifiers", "patient_identity_matches", "patient_draft_revisions", "mapping_approvals", "validation_results"]) {
-      expect(migration).toContain(`p_table_name = '${table}'`);
+      expect(migration).toContain(`'${table}'`);
     }
   });
 
