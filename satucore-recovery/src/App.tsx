@@ -25,6 +25,7 @@ import type { Workspace, PatientDraftRecord } from "./lib/workflow";
 import { PatientCorrectionReviewQueue } from "./components/PatientCorrectionReviewQueue";
 import { PatientIdentityReviewQueue } from "./components/PatientIdentityReviewQueue";
 import { TransactionMonitor } from "./components/TransactionMonitor";
+import { FacilityAccessManagement } from "./components/FacilityAccessManagement";
 import {
   Activity,
   ArrowRight,
@@ -1612,6 +1613,7 @@ const issues = useMemo(
     ["FHIR & validation", ClipboardCheck],
     ["Transactions", Activity],
     ["Audit trail", ShieldCheck],
+    ...(workspace?.role === "tenant_admin" ? [["Facility access", Users] as const] : []),
     ["Settings", Settings],
   ];
   const go = (p: string) => {
@@ -3325,6 +3327,14 @@ const issues = useMemo(
                 </span>
               </div>
             </>
+          ) : page === "Facility access" ? (
+            workspace ? <FacilityAccessManagement workspace={workspace} /> : (
+              <div className="empty-state">
+                <div className="empty-icon"><ShieldCheck size={28} /></div>
+                <h3>Tenant administrator workspace required</h3>
+                <p>Sign in with an active tenant administrator account to manage facility assignments. Ordinary users cannot assign access.</p>
+              </div>
+            )
           ) : page === "Patient records" ? (
             <>
               <PageTitle
