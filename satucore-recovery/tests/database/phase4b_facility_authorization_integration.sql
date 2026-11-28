@@ -102,6 +102,10 @@ as $fn$
       and tm.status='active' and tm.role=any(p_roles));
 $fn$;
 
+alter table public.tenant_members enable row level security;
+create policy tenant_base_members_select on public.tenant_members for select to authenticated
+  using (user_id=auth.uid() or private.has_tenant_role(tenant_id,array['tenant_admin']::text[]));
+
 grant usage on schema auth, private to authenticated;
 grant execute on function auth.uid() to authenticated;
 grant execute on function private.has_tenant_role(uuid,text[]) to authenticated;
