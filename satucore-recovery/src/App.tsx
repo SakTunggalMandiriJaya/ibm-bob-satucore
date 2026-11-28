@@ -24,6 +24,7 @@ import {
 import type { Workspace, PatientDraftRecord } from "./lib/workflow";
 import { PatientCorrectionReviewQueue } from "./components/PatientCorrectionReviewQueue";
 import { PatientIdentityReviewQueue } from "./components/PatientIdentityReviewQueue";
+import { TransactionMonitor } from "./components/TransactionMonitor";
 import {
   Activity,
   ArrowRight,
@@ -2970,68 +2971,13 @@ const issues = useMemo(
             <>
               <PageTitle
                 eyebrow="INTEGRATION MONITOR"
-                title="Transactions"
-                desc="Track actual backend requests and responses. This preview has no live Patient write enabled."
+                title="SATUSEHAT Monitor"
+                desc="Monitor real backend requests, responses and reconciliation states for this clinic."
               />
-              {!workspace ? (
+              {workspace ? <TransactionMonitor workspace={workspace} /> : (
                 <div className="empty-state">
                   <h3>Sign in to view tenant transactions</h3>
                   <p>Only authenticated tenant data is displayed here.</p>
-                </div>
-              ) : opsRows.length ? (
-                <div className="panel table-panel">
-                  <div className="panel-head">
-                    <div>
-                      <h3>Recent integration transactions</h3>
-                      <p>Tenant-scoped backend records · newest first</p>
-                    </div>
-                    <span className="status-chip">LIVE RECORDS</span>
-                  </div>
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Type</th>
-                          <th>Status</th>
-                          <th>HTTP</th>
-                          <th>Submitted</th>
-                          <th>Response</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {opsRows.map((t: any) => (
-                          <tr key={t.id}>
-                            <td>{t.transaction_type}</td>
-                            <td>{t.transaction_status}</td>
-                            <td>{t.response_status ?? "—"}</td>
-                            <td>
-                              {t.submitted_at
-                                ? new Date(t.submitted_at).toLocaleString()
-                                : "—"}
-                            </td>
-                            <td>
-                              {t.error_message_sanitized ??
-                                (t.response_body
-                                  ? "Response captured"
-                                  : "Pending")}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-icon">
-                    <Activity size={28} />
-                  </div>
-                  <h3>No submission transactions</h3>
-                  <p>
-                    Only real backend requests and responses will appear here.
-                    Demo actions are never recorded as successful transmissions.
-                  </p>
-                  <span className="status-chip">LIVE WRITE DISABLED</span>
                 </div>
               )}
             </>
