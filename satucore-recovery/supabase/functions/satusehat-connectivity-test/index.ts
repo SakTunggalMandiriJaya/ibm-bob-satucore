@@ -145,11 +145,23 @@ Deno.serve(async (req: Request) => {
   const input = await req.json().catch(() => ({}));
 
   const tenantId = String(input.tenant_id ?? "").trim();
+  const organizationId = String(input.organization_id ?? "").trim();
   const action = String(input.action ?? ACTIONS.PREFLIGHT).trim();
 
   if (!tenantId) {
     return json(
       { success: false, error: "tenant_id is required." },
+      400
+    );
+  }
+
+  if (!organizationId) {
+    return json(
+      {
+        success: false,
+        stage: "authorization",
+        error: "Select an Organization before running a facility-specific SATUSEHAT operation."
+      },
       400
     );
   }
@@ -332,6 +344,7 @@ Deno.serve(async (req: Request) => {
         "id,tenant_id,organization_id,environment,client_id_reference,client_secret_reference,connection_status"
       )
       .eq("tenant_id", tenantId)
+      .eq("organization_id", organizationId)
       .eq("environment", "sandbox");
 
   if (connectionError) {
@@ -354,7 +367,7 @@ Deno.serve(async (req: Request) => {
         success: false,
         action,
         stage: "configuration",
-        error: "No Sandbox connection is configured for this tenant."
+        error: "No Sandbox connection is configured for the selected facility."
       },
       409,
       "failed",
@@ -368,7 +381,7 @@ Deno.serve(async (req: Request) => {
         success: false,
         action,
         stage: "configuration",
-        error: "Multiple Sandbox connections found. Select a facility connection before testing."
+        error: "Multiple Sandbox connections found for the selected facility. Resolve the duplicate connection configuration before testing."
       },
       409,
       "failed",
