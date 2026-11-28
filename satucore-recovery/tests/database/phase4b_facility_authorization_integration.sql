@@ -215,6 +215,9 @@ reset role;
 reset request.jwt.claim.sub;
 
 -- Legacy object INSERT is permitted only when the pre-created import row proves facility ownership.
+-- Run as the assigned authenticated user; a superuser bypasses RLS and invalidates this check.
+set role authenticated;
+set request.jwt.claim.sub='10000000-0000-0000-0000-000000000001';
 do $assert$
 begin
   insert into storage.objects(bucket_id,name) values (
@@ -231,6 +234,8 @@ begin
   end;
 end;
 $assert$;
+reset role;
+reset request.jwt.claim.sub;
 
 -- RLS WITH CHECK permits writes only into an assigned Organization.
 set role authenticated;
