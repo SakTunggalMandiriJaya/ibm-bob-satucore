@@ -207,12 +207,13 @@ reset role;
 reset request.jwt.claim.sub;
 
 -- Tenant administrator sees all facilities and their records within its own tenant only.
+-- One additional same-tenant Patient was inserted by the assigned data_manager above.
 set role authenticated;
 set request.jwt.claim.sub='10000000-0000-0000-0000-000000000002';
 do $assert$
 begin
   if (select count(*) from public.organizations) <> 2 then raise exception 'tenant admin did not see all tenant Organizations'; end if;
-  if (select count(*) from public.patients) <> 2 then raise exception 'tenant admin did not see all tenant Patients'; end if;
+  if (select count(*) from public.patients) <> 3 then raise exception 'tenant admin did not see all tenant Patients'; end if;
 end;
 $assert$;
 reset role;
