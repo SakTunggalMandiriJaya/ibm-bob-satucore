@@ -490,7 +490,7 @@ function App() {
       if (!alive || !data.session) return;
       try {
         const w = await getWorkspace(data.session);
-        const restored = await restoreLatestImport(w);
+        const restored = w.organizationId ? await restoreLatestImport(w) : null;
         if (alive) {
           setSession(data.session);
           setWorkspace(w);
@@ -1948,10 +1948,33 @@ const issues = useMemo(
                 {workspace.availableOrganizations.map((organization) => (
                   <div className="settings-line" key={organization.id}>
                     <span><b>{organization.name}</b><small>Authorized facility · {organization.id}</small></span>
-                    <button className="primary-btn" onClick={() => {
-                      setWorkspace({ ...workspace, organizationId: organization.id, organizationName: organization.name, availableOrganizations: undefined });
+                    <button className="primary-btn" onClick={async () => {
+                      const selectedWorkspace = { ...workspace, organizationId: organization.id, organizationName: organization.name, availableOrganizations: undefined };
+                      setWorkspace(selectedWorkspace);
                       setTenant(organization.name);
-                      setNotice("Facility selected: " + organization.name + ". Clinical workflows are now scoped to this Organization.");
+                      setNotice("Facility selected: " + organization.name + ". Loading only this facility's latest import.");
+                      try {
+                        const restored = await restoreLatestImport(selectedWorkspace);
+                        if (restored) {
+                          setIsDemoMode(false);
+                          setImportId(restored.importId);
+                          setFilename(restored.filename);
+                          setRows(restored.rows);
+                          setFields(restored.fields);
+                          setApproved(restored.fields.length > 0 && restored.fields.every(f => f.approved));
+                          setActive(restored.fields.length ? "MAP" : "SCAN");
+                          setPage(restored.fields.length && restored.fields.every(f => f.approved) ? "FHIR & validation" : "MAP");
+                          setNotice("Facility selected. Its latest import and mapping decisions have been restored.");
+                        } else {
+                          setImportId(null);
+                          setRows([]);
+                          setFields([]);
+                          setPage("Overview");
+                          setNotice("Facility selected: " + organization.name + ". No prior import exists for this facility.");
+                        }
+                      } catch (error) {
+                        setNotice("Facility selected, but its previous import could not be restored: " + getReadableError(error));
+                      }
                     }}>Open facility <ArrowRight size={15}/></button>
                   </div>
                 ))}
