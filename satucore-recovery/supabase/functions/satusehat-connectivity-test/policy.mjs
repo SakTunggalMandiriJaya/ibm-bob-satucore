@@ -48,3 +48,10 @@ export function summarizePatientResponse(body) {
     gender_present: typeof body.gender === "string"
   };
 }
+
+export function isAuthorizedForOrganization(role, assignment) {
+  if (role === "tenant_admin") return true;
+  return assignment?.status === "active" &&
+    typeof assignment.organization_id === "string" &&
+    assignment.organization_id.length > 0;
+}
