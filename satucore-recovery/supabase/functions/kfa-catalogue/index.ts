@@ -37,8 +37,15 @@ Deno.serve(async (req) => {
     .eq("tenant_id", tenantId)
     .eq("organization_id", organizationId);
   if (connError) return json({ error: "Could not resolve facility SATUSEHAT connection" }, 500);
-  const connection = (connections ?? []).find((c: any) => ["sandbox", "staging"].includes(String(c.environment).toLowerCase()) && c.connection_status === "active");
-  if (!connection) return json({ error: "No active staging SATUSEHAT connection is configured for this clinic." }, 409);
+  const eligibleConnections = (connections ?? []).filter((c: any) =>
+    ["sandbox", "staging"].includes(String(c.environment).toLowerCase()) &&
+    ["active", "tested"].includes(String(c.connection_status).toLowerCase())
+  );
+  if (eligibleConnections.length === 0)
+    return json({ error: "No active or successfully preflight-tested Sandbox connection is configured for the selected facility." }, 409);
+  if (eligibleConnections.length !== 1)
+    return json({ error: "Multiple eligible SATUSEHAT connections exist for the selected facility. Resolve the duplicate configuration before KFA access." }, 409);
+  const connection = eligibleConnections[0];
   if (connection.organization_id !== organizationId)
     return json({ error: "Resolved SATUSEHAT connection does not match the selected facility." }, 409);
 
